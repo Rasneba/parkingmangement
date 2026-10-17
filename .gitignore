@@ -25,3 +25,7 @@ tsconfig.tsbuildinfo
 
 # generated test artifacts
 coverage/
+
+# sandbox local pg data
+.pgdata/
+.pg.log

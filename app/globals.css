@@ -1,52 +1,94 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Design tokens — "Meridian" premium parking design system.
+   Light-first, soft neutral surfaces, deep navy ink, sophisticated blue
+   primary with restrained emerald status accents. All legacy variable names
+   (--card-bg, --accent-gradient, ...) are preserved for existing screens.
+--------------------------------------------------------------------------- */
 :root {
-  --bg: #f1f5f9;
+  /* surfaces */
+  --bg: #f6f7f9;
   --bg-elevated: #ffffff;
   --card-bg: #ffffff;
-  --card-border: #e2e8f0;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-tertiary: #94a3b8;
-  --muted: #94a3b8;
-  --border-color: #e2e8f0;
-  --accent: #2563eb;
-  --accent-sky: #0ea5e9;
-  --accent-green: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-red: #ef4444;
-  --accent-purple: #8b5cf6;
-  --accent-gradient: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 6px 20px rgba(15, 23, 42, 0.08);
-  --sidebar-bg: #0f172a;
-  --sidebar-text: #cbd5e1;
-  --sidebar-active: #2563eb;
-  --sidebar-hover: #f1f5f9;
+  --card-border: #e6e9ef;
+  --surface-sunken: #f1f3f6;
+  --surface-hover: #f4f6f9;
+
+  /* ink */
+  --text-primary: #101828;
+  --text-secondary: #475467;
+  --text-tertiary: #98a2b3;
+  --muted: #98a2b3;
+
+  /* brand */
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-soft: #eef4ff;
+  --accent: #1d4ed8;
+  --accent-sky: #0e9bdb;
+  --accent-green: #059669;
+  --accent-amber: #d97706;
+  --accent-red: #dc2626;
+  --accent-purple: #7c3aed;
+  --accent-teal: #0d9488;
+
+  /* legacy alias */
+  --accent-gradient: linear-gradient(135deg, #1d4ed8 0%, #0e9bdb 100%);
+
+  /* borders, shadows, radii */
+  --border-color: #e6e9ef;
+  --border-strong: #d0d5dd;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 20px 40px -12px rgba(16, 24, 40, 0.18);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+
+  /* sidebar (dark navy over both themes) */
+  --sidebar-bg: #0c1222;
+  --sidebar-border: rgba(148, 163, 184, 0.14);
+  --sidebar-text: #9aa5b8;
+  --sidebar-text-strong: #e2e8f0;
+  --sidebar-active: #1d4ed8;
+  --sidebar-hover: rgba(148, 163, 184, 0.1);
+
+  /* inputs */
   --input-bg: #ffffff;
-  --input-border: #e2e8f0;
-  --body-bg: #f1f5f9;
-  --radius: 14px;
+  --input-border: #d0d5dd;
+  --ring: rgba(29, 78, 216, 0.28);
+
+  --focus-ring: 0 0 0 3px var(--ring);
 }
 
 html[data-theme="dark"] {
-  --bg: #070b16;
-  --bg-elevated: #0f172a;
-  --card-bg: #0f172a;
-  --card-border: #1e293b;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-tertiary: #64748b;
-  --muted: #64748b;
-  --border-color: #1e293b;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
-  --sidebar-bg: #020617;
-  --sidebar-text: #94a3b8;
-  --sidebar-hover: #1e293b;
-  --input-bg: #0b1220;
-  --input-border: #1e293b;
-  --body-bg: #070b16;
+  --bg: #0a0f1c;
+  --bg-elevated: #101828;
+  --card-bg: #101828;
+  --card-border: #1f2937;
+  --surface-sunken: #0d1424;
+  --surface-hover: #16203222;
+
+  --text-primary: #f2f4f7;
+  --text-secondary: #98a2b3;
+  --text-tertiary: #667085;
+  --muted: #667085;
+
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --primary-soft: rgba(59, 130, 246, 0.14);
+
+  --border-color: #1f2937;
+  --border-strong: #344054;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 40px -12px rgba(0, 0, 0, 0.6);
+
+  --sidebar-bg: #070b16;
+  --input-bg: #0d1424;
+  --input-border: #2a3547;
+  --ring: rgba(59, 130, 246, 0.35);
 }
 
 * {
@@ -56,38 +98,64 @@ html[data-theme="dark"] {
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   margin: 0;
   -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  font-feature-settings: "cv11", "ss01";
 }
 
+/* Numeric alignment for tables & KPIs */
+.pk-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------- scrollbars ---------------------------- */
 ::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+  background: var(--border-strong);
   border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+/* --------------------------------- focus --------------------------------- */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}
+
+/* --------------------------------- legacy helpers (existing pages) ------- */
 @keyframes pk-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .pk-spinner {
   width: 34px;
   height: 34px;
   border-radius: 50%;
   border: 3px solid var(--border-color);
-  border-top-color: var(--accent-sky);
+  border-top-color: var(--primary);
   animation: pk-spin 0.8s linear infinite;
 }
 
 @keyframes pk-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 .pk-live-dot {
   width: 8px;
@@ -98,7 +166,148 @@ body {
   animation: pk-pulse 1.6s ease-in-out infinite;
 }
 
+/* --------------------------------- skeletons ----------------------------- */
+@keyframes pk-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.pk-skeleton {
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-sunken) 25%, var(--surface-hover) 50%, var(--surface-sunken) 75%);
+  background-size: 800px 100%;
+  animation: pk-shimmer 1.4s ease-in-out infinite;
+}
+
+/* --------------------------------- toasts -------------------------------- */
+@keyframes pk-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.pk-toast {
+  animation: pk-toast-in 0.18s ease-out;
+}
+
+/* --------------------------------- dialog -------------------------------- */
+@keyframes pk-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pk-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.pk-overlay {
+  animation: pk-overlay-in 0.15s ease-out;
+  background: rgba(4, 8, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+.pk-dialog {
+  animation: pk-dialog-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* --------------------------------- parking map --------------------------- */
+.pk-space {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  padding: 2px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  min-height: 44px;
+  cursor: pointer;
+  text-align: center;
+}
+.pk-space:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  z-index: 1;
+}
+.pk-space--available {
+  background: var(--card-bg);
+  color: var(--text-secondary);
+}
+.pk-space--occupied {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+  color: var(--primary);
+}
+.pk-space--reserved {
+  background: color-mix(in srgb, var(--accent-purple) 10%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--accent-purple) 35%, transparent);
+  color: var(--accent-purple);
+}
+.pk-space--maintenance {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--surface-sunken),
+    var(--surface-sunken) 5px,
+    color-mix(in srgb, var(--accent-amber) 14%, var(--surface-sunken)) 5px,
+    color-mix(in srgb, var(--accent-amber) 14%, var(--surface-sunken)) 10px
+  );
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+html[data-theme="dark"] .pk-space--available {
+  background: #0d1424;
+}
+
+/* --------------------------------- misc ---------------------------------- */
+.pk-truncate-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 @media print {
-  .no-print { display: none !important; }
-  body { background: #fff; }
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .pk-print-area,
+  .pk-print-area * {
+    visibility: visible;
+  }
+  .pk-print-area {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #000;
+    padding: 20px 28px;
+    font-size: 12px;
+  }
 }

@@ -23,7 +23,13 @@ export async function GET(req: Request) {
       const params: any[] = [user.company_id];
       let idx = 2;
       if (date) { query += ` AND DATE(pp.payment_date) = $${idx}`; params.push(date); idx++; }
-      query += " ORDER BY pp.created_at DESC LIMIT 200";
+      const from = searchParams.get("from");
+      if (from) { query += ` AND DATE(pp.payment_date) >= $${idx}`; params.push(from); idx++; }
+      const to = searchParams.get("to");
+      if (to) { query += ` AND DATE(pp.payment_date) <= $${idx}`; params.push(to); idx++; }
+      const method = searchParams.get("method");
+      if (method) { query += ` AND pp.payment_method = $${idx}`; params.push(method); idx++; }
+      query += " ORDER BY pp.created_at DESC LIMIT 500";
       const result = await pool.query(query, params);
       return ok(result.rows);
     } catch (e: any) { return err(e.message); }

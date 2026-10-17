@@ -42,9 +42,40 @@ export async function GET(req: Request) {
       if (date) { query += ` AND DATE(ps.entry_time) = $${idx}`; params.push(date); idx++; }
       if (zone_id) { query += ` AND pz.id = $${idx}`; params.push(parseInt(zone_id)); idx++; }
       if (phone) { query += ` AND (mm.phone ILIKE $${idx} OR pq.visitor_phone ILIKE $${idx} OR pv.owner_phone ILIKE $${idx} OR pq.visitor_name ILIKE $${idx})`; params.push(`%${phone}%`); idx++; }
-      query += " ORDER BY ps.entry_time DESC LIMIT 200";
+      const q = searchParams.get("q");
+      if (q) {
+        query += ` AND (ps.plate_number ILIKE $${idx} OR UPPER(ps.ticket_number) LIKE UPPER($${idx}) OR pv.owner_name ILIKE $${idx} OR mm.full_name ILIKE $${idx})`;
+        params.push(`%${q}%`); idx++;
+      }
+      const paymentStatus = searchParams.get("payment_status");
+      if (paymentStatus) { query += ` AND ps.payment_status = $${idx}`; params.push(paymentStatus); idx++; }
+      const from = searchParams.get("from");
+      if (from) { query += ` AND ps.entry_time::date >= $${idx}`; params.push(from); idx++; }
+      const to = searchParams.get("to");
+      if (to) { query += ` AND ps.entry_time::date <= $${idx}`; params.push(to); idx++; }
+
+      // Legacy callers (no page param) keep receiving a plain array. Newer UI
+      // passes page=1 to receive a paginated envelope with the total count.
+      const page = parseInt(searchParams.get("page") || "", 10);
+      const sortBy = searchParams.get("sort");
+      const dir = (searchParams.get("dir") || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
+      const sortMap: Record<string, string> = {
+        entry_time: "ps.entry_time", exit_time: "ps.exit_time", amount: "ps.amount",
+        ticket_number: "ps.ticket_number", plate_number: "ps.plate_number", status: "ps.status",
+      };
+      const orderExpr = sortBy && sortMap[sortBy] ? `${sortMap[sortBy]} ${dir}` : "ps.entry_time DESC";
+
+      if (!page) {
+        query += ` ORDER BY ${orderExpr} LIMIT 200`;
+        const result = await pool.query(query, params);
+        return ok(result.rows);
+      }
+
+      const pageSize = Math.min(Math.max(parseInt(searchParams.get("page_size") || "25", 10) || 25, 5), 100);
+      const countRes = await pool.query(`SELECT COUNT(*)::int AS total FROM (${query}) c`, params);
+      query += ` ORDER BY ${orderExpr} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
       const result = await pool.query(query, params);
-      return ok(result.rows);
+      return ok({ rows: result.rows, total: countRes.rows[0]?.total ?? 0, page, page_size: pageSize });
     } catch (e: any) { return err(e.message); }
   });
 }

@@ -1,171 +1,227 @@
 "use client";
-import { useEffect, useState } from "react";
-import { GemPage, GemHeader, GemCard, GemCardBare, GemBtn, GemTable, GemBadge, GemInput, GemSelect } from "@/lib/gem-ui";
-import { DoorOpen, Plus, X, Save } from "lucide-react";
 
-export default function ParkingGatesPage() {
-  const [gates, setGates] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<any>({ name: "", code: "", type: "entry", direction: "in", ip_address: "", port: "80", barrier_open_delay: "2", is_anpr_enabled: true, is_qr_enabled: true, is_nfc_enabled: false, is_rfid_enabled: false, notes: "" });
-  const [saving, setSaving] = useState(false);
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+import { useCallback, useEffect, useState } from "react";
+import { DoorOpen, Pencil, Plus, ScanLine, Trash2 } from "lucide-react";
+import {
+  Badge, Button, Card, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input, Select,
+  Switch, useToast, type Column,
+} from "@/lib/ui";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/client";
 
-  const load = async () => {
-    if (!token) return;
-    setLoading(true);
+interface Gate {
+  id: number;
+  name: string;
+  code: string;
+  type: string;
+  direction: string;
+  status: string;
+  ip_address: string | null;
+  port: number | null;
+  serial_port: string | null;
+  barrier_open_delay: number;
+  is_anpr_enabled: boolean;
+  is_qr_enabled: boolean;
+  is_nfc_enabled: boolean;
+  is_rfid_enabled: boolean;
+  notes: string | null;
+}
+
+const CAPABILITIES: Array<{ key: keyof Gate; label: string }> = [
+  { key: "is_anpr_enabled", label: "ANPR" },
+  { key: "is_qr_enabled", label: "QR" },
+  { key: "is_rfid_enabled", label: "RFID" },
+  { key: "is_nfc_enabled", label: "NFC" },
+];
+
+export default function GatesPage() {
+  const toast = useToast();
+  const [rows, setRows] = useState<Gate[] | null>(null);
+  const [edit, setEdit] = useState<Partial<Gate> | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Gate | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
     try {
-      const res = await fetch("/api/membership/parking/gates", { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (Array.isArray(data)) setGates(data);
-    } catch {}
-    setLoading(false);
-  };
+      setRows(await apiGet<Gate[]>("/api/membership/parking/gates?limit=100"));
+    } catch (e: any) {
+      setError(e.message);
+      setRows([]);
+    }
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  useEffect(() => { load(); }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token) return;
-    setSaving(true);
-    try {
-      const res = await fetch("/api/membership/parking/gates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...form, port: parseInt(form.port) || 80, barrier_open_delay: parseInt(form.barrier_open_delay) || 2 }),
-      });
-      if (res.ok) { setShowForm(false); setForm({ name: "", code: "", type: "entry", direction: "in", ip_address: "", port: "80", barrier_open_delay: "2", is_anpr_enabled: true, is_qr_enabled: true, is_nfc_enabled: false, is_rfid_enabled: false, notes: "" }); load(); }
-      else { const err = await res.json(); alert(err.error); }
-    } catch { alert("Server error"); }
-    setSaving(false);
-  };
-
-  const toggleGate = async (id: number, field: string, value: any) => {
-    if (!token) return;
-    try {
-      await fetch(`/api/membership/parking/gates/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ [field]: value }),
-      });
-      load();
-    } catch {}
-  };
-
-  const statusBadge = (s: string) => {
-    const map: Record<string, "success" | "default" | "warning"> = { active: "success", inactive: "default", maintenance: "warning" };
-    return <GemBadge variant={map[s] || "default"}>{s}</GemBadge>;
-  };
+  const columns: Column<Gate>[] = [
+    {
+      key: "name",
+      label: "Gate",
+      render: (r) => (
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary-soft)] text-[var(--primary)]">
+            <DoorOpen size={15} />
+          </span>
+          <div>
+            <p className="font-semibold text-[var(--text-primary)]">{r.name}</p>
+            <p className="pk-num text-[11.5px] text-[var(--text-tertiary)]">{r.code}</p>
+          </div>
+        </div>
+      ),
+    },
+    { key: "type", label: "Type", render: (r) => <span className="capitalize">{r.type}</span> },
+    { key: "direction", label: "Direction", render: (r) => <Badge tone="info">{r.direction}</Badge> },
+    {
+      key: "status",
+      label: "Status",
+      render: (r) => <Badge tone={r.status === "online" ? "success" : r.status === "offline" ? "danger" : "neutral"} dot>{r.status}</Badge>,
+    },
+    {
+      key: "capabilities",
+      label: "Capabilities",
+      hideBelow: "md",
+      render: (r) => (
+        <div className="flex gap-1">
+          {CAPABILITIES.filter((c) => r[c.key]).map((c) => (
+            <Badge key={c.key} tone="primary">{c.label}</Badge>
+          ))}
+          {CAPABILITIES.every((c) => !r[c.key]) && <span className="text-[var(--text-tertiary)]">—</span>}
+        </div>
+      ),
+    },
+    { key: "ip", label: "Address", hideBelow: "lg", render: (r) => <span className="pk-num">{r.ip_address ? `${r.ip_address}${r.port ? `:${r.port}` : ""}` : r.serial_port || "—"}</span> },
+    {
+      key: "actions",
+      label: "",
+      align: "right",
+      render: (r) => (
+        <div className="flex justify-end gap-1">
+          <Button size="sm" variant="ghost" icon={<Pencil size={13} />} onClick={() => setEdit(r)} aria-label={`Edit ${r.name}`} />
+          <Button size="sm" variant="ghost" className="text-[var(--accent-red)]" icon={<Trash2 size={13} />} onClick={() => setConfirmDelete(r)} aria-label={`Delete ${r.name}`} />
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <GemPage>
-      <GemHeader
-        title="Parking Gates"
-        subtitle="Configure 3 entry/exit gates with ANPR, QR, and NFC"
-        actions={
-          <GemBtn onClick={() => setShowForm(!showForm)}>
-            {showForm ? <X size={16} /> : <Plus size={16} />}{showForm ? "Cancel" : "Add Gate"}
-          </GemBtn>
-        }
-      />
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">Gates</h1>
+          <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">Entry and exit lanes, their barrier controllers and accepted credential types.</p>
+        </div>
+        <Button icon={<Plus size={15} />} onClick={() => setEdit({ type: "entry", direction: "in", barrier_open_delay: 2, is_anpr_enabled: true, is_qr_enabled: true })}>Add gate</Button>
+      </div>
 
-      {showForm && (
-        <GemCard className="mb-6">
-          <h3 className="font-semibold mb-4 flex items-center gap-2"><DoorOpen size={18} />Register Gate</h3>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-4">
-            <div className="md:col-span-2">
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Gate Name <span className="text-red-500">*</span></label>
-              <GemInput type="text" required value={form.name} onChange={(e: any) => setForm({...form, name: e.target.value})} placeholder="Gate 1" />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Code <span className="text-red-500">*</span></label>
-              <GemInput type="text" required value={form.code} onChange={(e: any) => setForm({...form, code: e.target.value})} placeholder="G1" />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Type</label>
-              <GemSelect value={form.type} onChange={(e: any) => setForm({...form, type: e.target.value})}>
-                <option value="entry">Entry</option>
-                <option value="exit">Exit</option>
-                <option value="dual">Dual (Entry/Exit)</option>
-              </GemSelect>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Direction</label>
-              <GemSelect value={form.direction} onChange={(e: any) => setForm({...form, direction: e.target.value})}>
-                <option value="in">In</option>
-                <option value="out">Out</option>
-                <option value="both">Both</option>
-              </GemSelect>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Barrier Delay (s)</label>
-              <GemInput type="number" value={form.barrier_open_delay} onChange={(e: any) => setForm({...form, barrier_open_delay: e.target.value})} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-sm text-gray-500 font-medium mb-1 block">IP Address</label>
-              <GemInput type="text" value={form.ip_address} onChange={(e: any) => setForm({...form, ip_address: e.target.value})} />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Port</label>
-              <GemInput type="number" value={form.port} onChange={(e: any) => setForm({...form, port: e.target.value})} />
-            </div>
-            <div className="md:col-span-3">
-              <label className="text-sm text-gray-500 font-medium mb-2 block">Features</label>
-              <div className="flex gap-4">
-                {[{ key: "is_anpr_enabled", label: "ANPR" }, { key: "is_qr_enabled", label: "QR" }, { key: "is_nfc_enabled", label: "NFC" }, { key: "is_rfid_enabled", label: "RFID" }].map(f => (
-                  <label key={f.key} className="flex items-center gap-1.5 text-sm text-gray-600">
-                    <input type="checkbox" checked={form[f.key]} onChange={(e: any) => setForm({...form, [f.key]: e.target.checked})} className="rounded border-gray-300" />
-                    {f.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="md:col-span-6">
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Notes</label>
-              <textarea className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black/30 transition-all" rows={2} value={form.notes} onChange={(e: any) => setForm({...form, notes: e.target.value})} />
-            </div>
-            <div className="md:col-span-6">
-              <GemBtn type="submit" disabled={saving}>
-                <Save size={16} />{saving ? "Saving..." : "Add Gate"}
-              </GemBtn>
-            </div>
-          </form>
-        </GemCard>
-      )}
-
-      <GemCardBare>
-        {loading ? (
-          <div className="flex justify-center py-8">
-            <div className="w-8 h-8 border-4 border-black/20 border-t-black rounded-full animate-spin" />
+      <Card>
+        {error ? (
+          <div className="flex items-center justify-between px-5 py-4">
+            <p className="text-[13px] text-[var(--accent-red)]">{error}</p>
+            <Button size="sm" variant="outline" onClick={load}>Retry</Button>
           </div>
-        ) : gates.length === 0 ? (
-          <div className="text-center text-gray-400 py-8"><DoorOpen size={32} className="mx-auto mb-2 opacity-40" /><p className="text-sm">No gates configured</p></div>
         ) : (
-          <div className="overflow-x-auto p-6">
-            <GemTable
-              headers={["Code", "Name", "Type", "Direction", "Cameras", "Features", "Status", "Actions"]}
-              rows={gates.map(g => [
-                <span className="font-bold">{g.code}</span>,
-                g.name,
-                <GemBadge>{g.type}</GemBadge>,
-                <GemBadge variant="info">{g.direction}</GemBadge>,
-                g.camera_count,
-                <div className="flex gap-1 flex-wrap">
-                  {g.is_anpr_enabled && <GemBadge variant="info">ANPR</GemBadge>}
-                  {g.is_qr_enabled && <GemBadge variant="success">QR</GemBadge>}
-                  {g.is_nfc_enabled && <GemBadge variant="warning">NFC</GemBadge>}
-                  {g.is_rfid_enabled && <GemBadge>RFID</GemBadge>}
-                </div>,
-                statusBadge(g.status),
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={g.status === "active"} onChange={e => toggleGate(g.id, "status", e.target.checked ? "active" : "inactive")} className="sr-only peer" />
-                  <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-black/10 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
-                </label>,
-              ])}
-            />
-          </div>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            loading={!rows}
+            rowKey={(r) => r.id}
+            empty={<EmptyState icon={<ScanLine size={20} />} title="No gates" body="Register the physical entry/exit lanes of your facility." />}
+          />
         )}
-      </GemCardBare>
-    </GemPage>
+      </Card>
+
+      <GateDialog edit={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          try {
+            await apiDelete(`/api/membership/parking/gates/${confirmDelete.id}`);
+            toast.success("Gate deleted");
+            setConfirmDelete(null);
+            load();
+          } catch (e: any) {
+            toast.error("Cannot delete gate", e.message);
+          }
+        }}
+        danger
+        title={confirmDelete ? `Delete ${confirmDelete.name}?` : ""}
+        body="Sessions and tickets that referenced this gate keep their records. Make sure no active kiosk or bridge is bound to it."
+        confirmLabel="Delete gate"
+      />
+    </div>
+  );
+}
+
+function GateDialog({ edit, onClose, onSaved }: { edit: Partial<Gate> | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState<Partial<Gate>>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setForm(edit ?? {}), [edit]);
+  if (!edit) return null;
+  const isNew = !edit.id;
+
+  const save = async () => {
+    if (!form.name?.trim() || !form.code?.trim()) {
+      toast.error("Name and code are required");
+      return;
+    }
+    setBusy(true);
+    try {
+      const body = {
+        name: form.name.trim(), code: form.code.trim().toUpperCase(),
+        type: form.type || "entry", direction: form.direction || "in",
+        ip_address: form.ip_address || null, port: form.port ? Number(form.port) : null,
+        serial_port: form.serial_port || null, barrier_open_delay: Number(form.barrier_open_delay ?? 2),
+        is_anpr_enabled: !!form.is_anpr_enabled, is_qr_enabled: !!form.is_qr_enabled,
+        is_rfid_enabled: !!form.is_rfid_enabled, is_nfc_enabled: !!form.is_nfc_enabled,
+        notes: form.notes || null,
+      };
+      if (isNew) await apiPost("/api/membership/parking/gates", body);
+      else await apiPut(`/api/membership/parking/gates/${edit.id}`, body);
+      toast.success(isNew ? "Gate added" : "Gate updated");
+      onSaved();
+    } catch (e: any) {
+      toast.error("Save failed", e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const set = (patch: Partial<Gate>) => setForm((f) => ({ ...f, ...patch }));
+
+  return (
+    <Dialog open onClose={onClose} title={isNew ? "Add gate" : `Edit ${edit.name}`} size="md"
+      footer={<><Button variant="outline" size="sm" onClick={onClose}>Cancel</Button><Button size="sm" loading={busy} onClick={save}>{isNew ? "Add gate" : "Save"}</Button></>}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Gate name" required><Input value={form.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder="Main Entrance" /></Field>
+        <Field label="Code" required hint="Short unique code"><Input value={form.code ?? ""} onChange={(e) => set({ code: e.target.value.toUpperCase() })} placeholder="GT-MAIN-IN" /></Field>
+        <Field label="Type">
+          <Select value={form.type ?? "entry"} onChange={(e) => set({ type: e.target.value })}>
+            {["entry", "exit", "mixed"].map((t) => <option key={t} value={t}>{t}</option>)}
+          </Select>
+        </Field>
+        <Field label="Direction">
+          <Select value={form.direction ?? "in"} onChange={(e) => set({ direction: e.target.value })}>
+            {["in", "out", "both"].map((d) => <option key={d} value={d}>{d}</option>)}
+          </Select>
+        </Field>
+        <Field label="Controller IP"><Input value={form.ip_address ?? ""} onChange={(e) => set({ ip_address: e.target.value })} placeholder="192.168.0.10" /></Field>
+        <Field label="Port"><Input type="number" min="1" max="65535" value={form.port ?? ""} onChange={(e) => set({ port: e.target.value ? Number(e.target.value) : undefined })} placeholder="80" /></Field>
+        <Field label="Serial port" hint="For RS-485 barrier controllers"><Input value={form.serial_port ?? ""} onChange={(e) => set({ serial_port: e.target.value })} placeholder="/dev/ttyUSB0" /></Field>
+        <Field label="Barrier open delay (s)"><Input type="number" min="0" max="60" value={form.barrier_open_delay ?? 2} onChange={(e) => set({ barrier_open_delay: Number(e.target.value) })} /></Field>
+        <div className="sm:col-span-2">
+          <p className="mb-2 text-[12.5px] font-semibold text-[var(--text-secondary)]">Accepted credentials</p>
+          <div className="flex flex-wrap gap-5">
+            {CAPABILITIES.map((c) => (
+              <Switch key={c.key} label={c.label} checked={!!form[c.key]} onChange={(v) => set({ [c.key]: v } as Partial<Gate>)} />
+            ))}
+          </div>
+        </div>
+        <Field label="Notes" className="sm:col-span-2"><Input value={form.notes ?? ""} onChange={(e) => set({ notes: e.target.value })} /></Field>
+      </div>
+    </Dialog>
   );
 }

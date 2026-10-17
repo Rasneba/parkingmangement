@@ -1,5 +1,6 @@
 import pool from "@/lib/db";
 import {
+  conflict,
   withAuth,
   ok,
   created,
@@ -39,6 +40,11 @@ export interface CrudConfig {
   companyColumn?: string;
   /** Whether the item lookup should expose a numeric id. */
   idColumn?: string;
+  /**
+   * Optional delete guard: return an error message string to block deletion
+   * (e.g. a parking space with an active session), or null to proceed.
+   */
+  deleteGuard?: (existing: Record<string, any>) => Promise<string | null>;
 }
 
 function pickWritable(body: any, columns: string[]): Record<string, any> {
@@ -165,6 +171,7 @@ export function createItemHandlers(cfg: CrudConfig) {
     idColumn = "id",
     selectColumns,
     joins = "",
+    deleteGuard,
   } = cfg;
 
   const alias = table;
@@ -239,6 +246,10 @@ export function createItemHandlers(cfg: CrudConfig) {
       try {
         const existing = await loadScoped(user, id);
         if (!existing) return notFound();
+        if (deleteGuard) {
+          const violation = await deleteGuard(existing);
+          if (violation) return conflict(violation);
+        }
         await pool.query(`DELETE FROM ${table} WHERE ${idColumn} = $1`, [id]);
         await logParkingAudit({
           user,

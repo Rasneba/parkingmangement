@@ -59,6 +59,25 @@ export async function POST(req: Request) {
         }
       }
 
+      // Overlap guard: a vehicle (or customer without a vehicle) must not have
+      // two overlapping active subscriptions.
+      if (vehicle_id || customer_id) {
+        const overlap = await pool.query(
+          `SELECT id, plan_type, start_date, end_date FROM parking_subscriptions
+           WHERE company_id = $1 AND status = 'active'
+             AND ($2::date <= end_date AND $3::date >= start_date)
+             AND (vehicle_id = $4 OR ($4 IS NULL AND customer_id = $5))
+           LIMIT 1`,
+          [user.company_id, start_date || new Date().toISOString().split("T")[0], end_date, vehicle_id || null, customer_id]
+        );
+        if (overlap.rows[0]) {
+          return NextResponse.json(
+            { error: `Overlapping active subscription exists (#${overlap.rows[0].id}, ${overlap.rows[0].plan_type}, ${String(overlap.rows[0].start_date).slice(0,10)} → ${String(overlap.rows[0].end_date).slice(0,10)}). Renew or cancel it first.` },
+            { status: 409 }
+          );
+        }
+      }
+
       const result = await pool.query(
         `INSERT INTO parking_subscriptions (company_id, customer_id, vehicle_id, plan_id, plan_type, start_date, end_date, amount, payment_method, payment_reference, auto_renew, notes, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,

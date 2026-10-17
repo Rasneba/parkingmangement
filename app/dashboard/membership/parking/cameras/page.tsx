@@ -1,236 +1,223 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
-import { GemPage, GemHeader, GemCard, GemCardBare, GemBtn, GemBtnOutline, GemTable, GemBadge, GemInput, GemSelect } from "@/lib/gem-ui";
-import { Camera, Plus, X, Save, Laptop, Eye, Square } from "lucide-react";
 
-export default function ParkingCamerasPage() {
-  const [cameras, setCameras] = useState<any[]>([]);
-  const [gates, setGates] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<any>({ gate_id: "", name: "", code: "", ip_address: "", port: "80", rtsp_url: "", direction: "in", protocol: "http", confidence_threshold: "85" });
-  const [saving, setSaving] = useState(false);
-  const [webcams, setWebcams] = useState<MediaDeviceInfo[]>([]);
-  const [scanningWebcams, setScanningWebcams] = useState(false);
-  const [webcamPreview, setWebcamPreview] = useState<string | null>(null);
-  const previewRef = useRef<HTMLVideoElement>(null);
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+import { useCallback, useEffect, useState } from "react";
+import { Camera, Pencil, Plus, Trash2, Video } from "lucide-react";
+import {
+  Badge, Button, Card, ConfirmDialog, Dialog, EmptyState, Field, Input, Select, Skeleton,
+  relativeTime, useToast,
+} from "@/lib/ui";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/client";
 
-  const load = async () => {
-    if (!token) return;
-    setLoading(true);
+interface Camera {
+  id: number;
+  name: string;
+  code: string;
+  gate_id: number | null;
+  gate_name: string | null;
+  ip_address: string | null;
+  port: number | null;
+  rtsp_url: string | null;
+  direction: string;
+  status: string;
+  protocol: string | null;
+  confidence_threshold: number;
+  last_heartbeat: string | null;
+}
+
+interface Gate { id: number; name: string }
+
+export default function CamerasPage() {
+  const toast = useToast();
+  const [cameras, setCameras] = useState<Camera[] | null>(null);
+  const [gates, setGates] = useState<Gate[]>([]);
+  const [edit, setEdit] = useState<Partial<Camera> | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Camera | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
     try {
-      const [cRes, gRes] = await Promise.all([
-        fetch("/api/membership/parking/cameras", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/membership/parking/gates", { headers: { Authorization: `Bearer ${token}` } }),
+      const [c, g] = await Promise.all([
+        apiGet<Camera[]>("/api/membership/parking/cameras?limit=200"),
+        apiGet<Gate[]>("/api/membership/parking/gates?limit=100"),
       ]);
-      const cData = await cRes.json();
-      const gData = await gRes.json();
-      if (Array.isArray(cData)) setCameras(cData);
-      if (Array.isArray(gData)) setGates(gData);
-    } catch {}
-    setLoading(false);
-  };
-
-  useEffect(() => { load(); }, []);
-
-  useEffect(() => {
-    return () => { if (previewRef.current?.srcObject) { (previewRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop()); } };
+      setCameras(c);
+      setGates(g);
+    } catch (e: any) {
+      setError(e.message);
+      setCameras([]);
+    }
   }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token) return;
-    setSaving(true);
-    try {
-      const res = await fetch("/api/membership/parking/cameras", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...form, gate_id: form.gate_id ? parseInt(form.gate_id) : null, port: form.protocol === "webcam" ? null : (parseInt(form.port) || 80), confidence_threshold: form.protocol === "webcam" ? null : (parseFloat(form.confidence_threshold) || 85) }),
-      });
-      if (res.ok) { setShowForm(false); setForm({ gate_id: "", name: "", code: "", ip_address: "", port: "80", rtsp_url: "", direction: "in", protocol: "http", confidence_threshold: "85" }); load(); }
-      else { const err = await res.json(); alert(err.error); }
-    } catch { alert("Server error"); }
-    setSaving(false);
-  };
-
-  const detectWebcams = async () => {
-    setScanningWebcams(true);
-    setWebcams([]);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach(t => t.stop());
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(d => d.kind === "videoinput");
-      setWebcams(videoDevices);
-      if (videoDevices.length > 0) {
-        const first = videoDevices[0];
-        setForm({ ...form, name: first.label || "Laptop Webcam", code: "WEBCAM", ip_address: "", port: "", rtsp_url: "", protocol: "webcam", confidence_threshold: "" });
-        setShowForm(true);
-      }
-    } catch { alert("Camera access denied or no webcam detected"); }
-    setScanningWebcams(false);
-  };
-
-  const previewWebcam = async (deviceId: string) => {
-    try {
-      if (previewRef.current?.srcObject) { (previewRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop()); }
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
-      if (previewRef.current) { previewRef.current.srcObject = stream; }
-      setWebcamPreview(deviceId);
-    } catch { alert("Failed to preview webcam"); }
-  };
-
-  const stopPreview = () => {
-    if (previewRef.current?.srcObject) { (previewRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop()); previewRef.current.srcObject = null; }
-    setWebcamPreview(null);
-  };
-
-  const statusBadge = (s: string) => {
-    const map: Record<string, "success" | "default" | "danger" | "warning"> = { active: "success", inactive: "default", offline: "danger", maintenance: "warning" };
-    return <GemBadge variant={map[s] || "default"}>{s}</GemBadge>;
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
-    <GemPage>
-      <GemHeader
-        title="Cameras"
-        subtitle="Configure ANPR cameras and laptop webcams"
-        actions={
-          <>
-            <GemBtnOutline onClick={detectWebcams} className={scanningWebcams ? "opacity-50 pointer-events-none" : ""}>
-              <Laptop size={16} />{scanningWebcams ? "Detecting..." : "Use Webcam"}
-            </GemBtnOutline>
-            <GemBtn onClick={() => { setShowForm(!showForm); setForm({ gate_id: "", name: "", code: "", ip_address: "", port: "80", rtsp_url: "", direction: "in", protocol: "http", confidence_threshold: "85" }); }}>
-              {showForm ? <X size={16} /> : <Plus size={16} />}{showForm ? "Cancel" : "Add Camera"}
-            </GemBtn>
-          </>
-        }
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">Cameras</h1>
+          <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">
+            ANPR / LPR cameras mounted at gates. Registration records the stream configuration — it does not imply the camera is reachable.
+          </p>
+        </div>
+        <Button icon={<Plus size={15} />} onClick={() => setEdit({ direction: "in", protocol: "rtsp", confidence_threshold: 80 })}>Add camera</Button>
+      </div>
+
+      {error ? (
+        <Card className="border-red-500/30">
+          <div className="flex items-center justify-between px-5 py-4">
+            <p className="text-[13px] text-[var(--accent-red)]">{error}</p>
+            <Button size="sm" variant="outline" onClick={load}>Retry</Button>
+          </div>
+        </Card>
+      ) : !cameras ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-36" />)}
+        </div>
+      ) : cameras.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<Video size={20} />}
+            title="No cameras registered"
+            body="Add gate cameras for automatic plate recognition. Streams stay unconfigured until a bridge is connected."
+            action={<Button size="sm" onClick={() => setEdit({ direction: "in", protocol: "rtsp", confidence_threshold: 80 })}>Add the first camera</Button>}
+          />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {cameras.map((c) => (
+            <Card key={c.id} hover className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
+                    <Camera size={18} />
+                  </span>
+                  <div>
+                    <h3 className="text-[14.5px] font-bold text-[var(--text-primary)]">{c.name}</h3>
+                    <p className="text-[12px] text-[var(--text-tertiary)]">{c.code} · {c.gate_name ?? "no gate"}</p>
+                  </div>
+                </div>
+                <Badge tone={c.status === "online" ? "success" : c.status === "offline" ? "danger" : "neutral"} dot>{c.status}</Badge>
+              </div>
+
+              <dl className="mt-4 space-y-1.5 text-[12.5px]">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--text-tertiary)]">Stream</dt>
+                  <dd className="pk-num max-w-[200px] truncate font-medium" title={c.rtsp_url ?? undefined}>{c.rtsp_url || `${c.ip_address ?? "no host"}${c.port ? `:${c.port}` : ""}`}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--text-tertiary)]">Direction</dt>
+                  <dd className="font-medium">{c.direction}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--text-tertiary)]">Min confidence</dt>
+                  <dd className="pk-num font-medium">{c.confidence_threshold}%</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--text-tertiary)]">Last heartbeat</dt>
+                  <dd className="font-medium">{c.last_heartbeat ? relativeTime(c.last_heartbeat) : "never"}</dd>
+                </div>
+              </dl>
+
+              <div className="mt-4 flex gap-2">
+                <Button size="sm" variant="outline" icon={<Pencil size={13} />} onClick={() => setEdit(c)}>Edit</Button>
+                <Button size="sm" variant="ghost" className="text-[var(--accent-red)]" icon={<Trash2 size={13} />} onClick={() => setConfirmDelete(c)} aria-label={`Delete ${c.name}`} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <CameraDialog edit={edit} gates={gates} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={async () => {
+          if (!confirmDelete) return;
+          try {
+            await apiDelete(`/api/membership/parking/cameras/${confirmDelete.id}`);
+            toast.success("Camera deleted");
+            setConfirmDelete(null);
+            load();
+          } catch (e: any) {
+            toast.error("Cannot delete camera", e.message);
+          }
+        }}
+        danger
+        title={confirmDelete ? `Delete ${confirmDelete.name}?` : ""}
+        body="The camera registration is removed. Captured plate events already stored are preserved."
+        confirmLabel="Delete camera"
       />
+    </div>
+  );
+}
 
-      {showForm && (
-        <GemCard className="mb-6">
-          <h3 className="font-semibold mb-4 flex items-center gap-2"><Camera size={18} />Register Camera</h3>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Camera Name <span className="text-red-500">*</span></label>
-              <GemInput type="text" required value={form.name} onChange={(e: any) => setForm({...form, name: e.target.value})} />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Code <span className="text-red-500">*</span></label>
-              <GemInput type="text" required value={form.code} onChange={(e: any) => setForm({...form, code: e.target.value})} />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Gate</label>
-              <GemSelect value={form.gate_id} onChange={(e: any) => setForm({...form, gate_id: e.target.value})}>
-                <option value="">No Gate</option>
-                {gates.map(g => <option key={g.id} value={g.id}>{g.name} ({g.code})</option>)}
-              </GemSelect>
-            </div>
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Direction</label>
-              <GemSelect value={form.direction} onChange={(e: any) => setForm({...form, direction: e.target.value})}>
-                <option value="in">Entry</option>
-                <option value="out">Exit</option>
-                <option value="both">Both</option>
-              </GemSelect>
-            </div>
-            {form.protocol !== "webcam" && (
-              <>
-                <div className="md:col-span-2">
-                  <label className="text-sm text-gray-500 font-medium mb-1 block">IP Address <span className="text-red-500">*</span></label>
-                  <GemInput type="text" required={form.protocol !== "webcam"} value={form.ip_address} onChange={(e: any) => setForm({...form, ip_address: e.target.value})} />
-                </div>
-                <div>
-                  <label className="text-sm text-gray-500 font-medium mb-1 block">Port</label>
-                  <GemInput type="number" value={form.port} onChange={(e: any) => setForm({...form, port: e.target.value})} />
-                </div>
-                <div>
-                  <label className="text-sm text-gray-500 font-medium mb-1 block">RTSP URL</label>
-                  <GemInput type="text" value={form.rtsp_url} onChange={(e: any) => setForm({...form, rtsp_url: e.target.value})} placeholder="rtsp://..." />
-                </div>
-              </>
-            )}
-            <div>
-              <label className="text-sm text-gray-500 font-medium mb-1 block">Protocol</label>
-              <GemSelect value={form.protocol} onChange={(e: any) => setForm({...form, protocol: e.target.value})}>
-                <option value="http">HTTP</option>
-                <option value="rtsp">RTSP</option>
-                <option value="onvif">ONVIF</option>
-                <option value="tcp_ip">TCP/IP</option>
-                <option value="webcam">Webcam (Laptop)</option>
-              </GemSelect>
-            </div>
-            {form.protocol !== "webcam" && (
-              <div>
-                <label className="text-sm text-gray-500 font-medium mb-1 block">Confidence Threshold (%)</label>
-                <GemInput type="number" value={form.confidence_threshold} onChange={(e: any) => setForm({...form, confidence_threshold: e.target.value})} />
-              </div>
-            )}
-            <div className="md:col-span-4">
-              <GemBtn type="submit" disabled={saving}>
-                <Save size={16} />{saving ? "Saving..." : "Save Camera"}
-              </GemBtn>
-            </div>
-          </form>
-        </GemCard>
-      )}
+function CameraDialog({ edit, gates, onClose, onSaved }: { edit: Partial<Camera> | null; gates: Gate[]; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState<Partial<Camera>>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setForm(edit ?? {}), [edit]);
+  if (!edit) return null;
+  const isNew = !edit.id;
 
-      {webcams.length > 0 && (
-        <GemCard className="mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-semibold flex items-center gap-2"><Laptop size={18} />Detected Webcams</h3>
-            <GemBadge variant="info">{webcams.length} found</GemBadge>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-            {webcams.map((w, i) => (
-              <div key={w.deviceId} className="flex justify-between items-center border border-gray-200 rounded-xl p-3">
-                <div>
-                  <p className="font-medium text-sm">{w.label || `Camera ${i + 1}`}</p>
-                  <p className="text-xs text-gray-400">{w.deviceId.slice(0, 20)}...</p>
-                </div>
-                <button className="text-blue-600 hover:text-blue-800 text-sm font-medium inline-flex items-center gap-1 transition-colors" onClick={() => previewWebcam(w.deviceId)}>
-                  <Eye size={14} />Preview
-                </button>
-              </div>
-            ))}
-          </div>
-          {webcamPreview && (
-            <div>
-              <video ref={previewRef} autoPlay playsInline className="rounded-xl border border-gray-200 w-full" style={{ maxHeight: 300 }} />
-              <button className="mt-2 text-sm text-red-500 hover:text-red-700 font-medium inline-flex items-center gap-1 transition-colors" onClick={stopPreview}>
-                <Square size={14} />Stop Preview
-              </button>
-            </div>
-          )}
-        </GemCard>
-      )}
+  const save = async () => {
+    if (!form.name?.trim() || !form.code?.trim()) {
+      toast.error("Name and code are required");
+      return;
+    }
+    setBusy(true);
+    try {
+      const body = {
+        name: form.name.trim(), code: form.code.trim().toUpperCase(),
+        gate_id: form.gate_id ? Number(form.gate_id) : null,
+        ip_address: form.ip_address || null, port: form.port ? Number(form.port) : null,
+        rtsp_url: form.rtsp_url || null, direction: form.direction || "in",
+        protocol: form.protocol || "rtsp", confidence_threshold: Number(form.confidence_threshold ?? 80),
+      };
+      if (isNew) await apiPost("/api/membership/parking/cameras", body);
+      else await apiPut(`/api/membership/parking/cameras/${edit.id}`, body);
+      toast.success(isNew ? "Camera added" : "Camera updated");
+      onSaved();
+    } catch (e: any) {
+      toast.error("Save failed", e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
-      <GemCardBare>
-        {loading ? (
-          <div className="flex justify-center py-8">
-            <div className="w-8 h-8 border-4 border-black/20 border-t-black rounded-full animate-spin" />
-          </div>
-        ) : cameras.length === 0 ? (
-          <div className="text-center text-gray-400 py-8"><Camera size={32} className="mx-auto mb-2 opacity-40" /><p className="text-sm">No cameras configured</p></div>
-        ) : (
-          <div className="overflow-x-auto p-6">
-            <GemTable
-              headers={["Code", "Name", "Gate", "IP / Source", "Direction", "Protocol", "Confidence", "Status"]}
-              rows={cameras.map(c => [
-                <span className="font-bold">{c.code}</span>,
-                c.name,
-                <GemBadge>{c.gate_name || "-"}</GemBadge>,
-                c.protocol === "webcam" ? <GemBadge variant="info">Built-in</GemBadge> : <span className="text-sm text-gray-400">{c.ip_address}:{c.port}</span>,
-                <GemBadge variant="info">{c.direction}</GemBadge>,
-                <GemBadge>{c.protocol}</GemBadge>,
-                c.confidence_threshold ? `${c.confidence_threshold}%` : "-",
-                statusBadge(c.status),
-              ])}
-            />
-          </div>
-        )}
-      </GemCardBare>
-    </GemPage>
+  const set = (patch: Partial<Camera>) => setForm((f) => ({ ...f, ...patch }));
+
+  return (
+    <Dialog open onClose={onClose} title={isNew ? "Add camera" : `Edit ${edit.name}`} size="md"
+      footer={<><Button variant="outline" size="sm" onClick={onClose}>Cancel</Button><Button size="sm" loading={busy} onClick={save}>{isNew ? "Add camera" : "Save"}</Button></>}>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Camera name" required><Input value={form.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder="Entry ANPR" /></Field>
+        <Field label="Code" required><Input value={form.code ?? ""} onChange={(e) => set({ code: e.target.value.toUpperCase() })} placeholder="CAM-ENTRY-1" /></Field>
+        <Field label="Mounted at gate">
+          <Select value={form.gate_id ? String(form.gate_id) : ""} onChange={(e) => set({ gate_id: e.target.value ? Number(e.target.value) : undefined })}>
+            <option value="">— none —</option>
+            {gates.map((g) => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+          </Select>
+        </Field>
+        <Field label="Direction">
+          <Select value={form.direction ?? "in"} onChange={(e) => set({ direction: e.target.value })}>
+            {["in", "out", "both"].map((d) => <option key={d} value={d}>{d}</option>)}
+          </Select>
+        </Field>
+        <Field label="IP address"><Input value={form.ip_address ?? ""} onChange={(e) => set({ ip_address: e.target.value })} placeholder="192.168.0.20" /></Field>
+        <Field label="Port"><Input type="number" min="1" max="65535" value={form.port ?? ""} onChange={(e) => set({ port: e.target.value ? Number(e.target.value) : undefined })} placeholder="554" /></Field>
+        <Field label="Protocol">
+          <Select value={form.protocol ?? "rtsp"} onChange={(e) => set({ protocol: e.target.value })}>
+            {["rtsp", "onvif", "http", "https"].map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+          </Select>
+        </Field>
+        <Field label="Min plate confidence %"><Input type="number" min="0" max="100" value={form.confidence_threshold ?? 80} onChange={(e) => set({ confidence_threshold: Number(e.target.value) })} /></Field>
+        <Field label="Stream URL" className="sm:col-span-2" hint="RTSP or bridge endpoint used by the ANPR bridge">
+          <Input value={form.rtsp_url ?? ""} onChange={(e) => set({ rtsp_url: e.target.value })} placeholder="rtsp://192.168.0.20:554/stream1" />
+        </Field>
+      </div>
+    </Dialog>
   );
 }
