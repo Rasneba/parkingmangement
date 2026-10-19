@@ -25,6 +25,7 @@ The parking module is a direct port of the parking section of the Genius ERP
 - **Hardware bridge** — `/api/parking/access/*` exposes live feeds, QR lookup,
   a relay command queue and a raw RFID swipe ingest endpoint.
 - **Online payments** — Chapa and AddisPay initialize/callback/verify flows.
+  AddisPay UAT/production setup: see [ADDISPAY_INTEGRATION.md](ADDISPAY_INTEGRATION.md).
 
 ---
 
