@@ -1,0 +1,16 @@
+# Never upload local secrets / logs with CLI deployments
+.env
+.env.*
+!.env.example
+*.log
+.prod.log
+.prod.err.log
+RUN-LOCAL.txt
+
+# local artifacts
+.next/
+node_modules/
+.pgdata/
+.pg.log
+tsconfig.tsbuildinfo
+.vercel/
