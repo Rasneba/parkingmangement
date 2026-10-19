@@ -1,7 +1,11 @@
-const ADDISPAY_API = process.env.ADDISPAY_API_URL || "https://uat.api.addispay.et";
+const DEFAULT_ADDISPAY_API = "https://uat.api.addispay.et";
+
+// Guard against placeholder values (e.g. "DEFAULT") ever becoming the base URL.
+const rawApiUrl = (process.env.ADDISPAY_API_URL || "").trim().replace(/\/+$/, "");
+const ADDISPAY_API = /^https?:\/\//i.test(rawApiUrl) ? rawApiUrl : DEFAULT_ADDISPAY_API;
 
 function getApiKey() {
-  return process.env.ADDISPAY_SECRET_KEY || "";
+  return (process.env.ADDISPAY_SECRET_KEY || "").trim();
 }
 
 export interface AddisPayInitializeParams {
