@@ -98,7 +98,8 @@ function ExitStation() {
   const [matches, setMatches] = useState<LookupResponse["matches"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [method, setMethod] = useState("cash");
+  const initialMode: "self" | "cashier" = params.get("mode") === "cashier" ? "cashier" : "self";
+  const [method, setMethod] = useState(initialMode === "self" ? "addispay" : "cash");
   const [reference, setReference] = useState("");
   const [lostTicket, setLostTicket] = useState(false);
   const [discountType, setDiscountType] = useState<"" | "amount" | "percent">("");
@@ -111,7 +112,7 @@ function ExitStation() {
   const [scanOpen, setScanOpen] = useState(false);
   const [occSlots, setOccSlots] = useState<OccSlot[]>([]);
   const [occLoading, setOccLoading] = useState(true);
-  const [mode, setMode] = useState<"self" | "cashier">("cashier");
+  const [mode, setMode] = useState<"self" | "cashier">(initialMode);
   const [adp, setAdp] = useState<{ tx_ref: string; checkout_url: string; amount: number; currency: string } | null>(null);
   const [adpQr, setAdpQr] = useState<string | null>(null);
   const [adpBusy, setAdpBusy] = useState(false);
@@ -319,6 +320,15 @@ function ExitStation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
+  // Keep mode + method in sync with the ?mode= query param (sidebar links).
+  useEffect(() => {
+    const m = params.get("mode");
+    if (m === "self" || m === "cashier") {
+      setMode(m);
+      setMethod((prev) => (m === "self" ? "addispay" : prev === "addispay" ? "cash" : prev));
+    }
+  }, [params]);
+
   const pricing = lookup?.pricing;
   const session = lookup?.session;
   const perms = lookup?.permissions;
@@ -339,7 +349,10 @@ function ExitStation() {
               { value: "cashier", label: "Cashier / Attendant" },
             ]}
             value={mode}
-            onChange={(v) => setMode(v)}
+            onChange={(v) => {
+              setMode(v);
+              setMethod((prev) => (v === "self" ? "addispay" : prev === "addispay" ? "cash" : prev));
+            }}
           />
         </div>
       </div>

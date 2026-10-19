@@ -22,6 +22,8 @@ interface NavItem {
   href: string;
   icon: React.ReactNode;
   badgeKey?: "notifications";
+  /** For links that share a path but differ by ?mode= (self vs cashier exit). */
+  matchMode?: "self" | "cashier";
 }
 interface NavGroup {
   label: string;
@@ -37,7 +39,8 @@ const NAV: NavGroup[] = [
     label: "Operations",
     items: [
       { label: "Vehicle Entry", href: `${BASE}/entry`, icon: <ArrowRightCircle size={17} /> },
-      { label: "Vehicle Exit", href: `${BASE}/exit`, icon: <CircleUser size={17} /> },
+      { label: "Self Checkout", href: `${BASE}/exit?mode=self`, icon: <CircleUser size={17} />, matchMode: "self" },
+      { label: "Cashier Exit", href: `${BASE}/exit?mode=cashier`, icon: <Banknote size={17} />, matchMode: "cashier" },
       { label: "Sessions", href: `${BASE}/sessions`, icon: <Clock size={17} /> },
     ],
   },
@@ -350,6 +353,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [searchOpen, setSearchOpen] = useState(false);
   const [site, setSite] = useState<{ id: number; name: string } | null>(null);
   const [sites, setSites] = useState<Array<{ id: number; name: string }>>([]);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!getToken()) {
@@ -374,6 +378,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [router]);
 
   useEffect(() => setDrawer(false), [pathname]);
+
+  // Track the query string so sidebar links that share a path
+  // (Self Checkout vs Cashier Exit) can highlight independently.
+  useEffect(() => {
+    setSearch(typeof window !== "undefined" ? window.location.search : "");
+  }, [pathname]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -456,7 +466,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
             {collapsed && <div className="mx-auto mb-1.5 h-px w-6" style={{ background: "var(--sidebar-border)" }} />}
             {group.items.map((item) => {
-              const active = item.href === BASE ? pathname === BASE : pathname.startsWith(item.href);
+              const pathOnly = item.href.split("?")[0];
+              const modeParam = new URLSearchParams(search).get("mode") || "self";
+              const active = item.href === BASE
+                ? pathname === BASE
+                : item.matchMode
+                  ? pathname === pathOnly && modeParam === item.matchMode
+                  : pathname.startsWith(pathOnly);
               return (
                 <Link
                   key={item.href}
