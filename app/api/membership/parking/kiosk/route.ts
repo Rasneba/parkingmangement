@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { withAuth, ok, created, err, badRequest, notFound } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
 import { generateSequentialId } from "@/lib/id-generator";
+import { logParkingAudit } from "@/lib/audit";
 import QRCode from "qrcode";
 
 export async function POST(req: Request) {
@@ -63,9 +64,10 @@ export async function POST(req: Request) {
 
       const sessionTicket = await generateSequentialId("parking_sessions", "ticket_number", "SES");
       const sessionRes = await pool.query(
-        `INSERT INTO parking_sessions (company_id, plate_number, slot_id, entry_method, qr_ticket_id, ticket_number, notes, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [user.company_id, `KIO-${ticketNumber}`, assignedSlotId, "qr", qrTicket.id, sessionTicket, `Kiosk entry: ${displayName}`, 'pending_payment']
+        `INSERT INTO parking_sessions
+           (company_id, plate_number, slot_id, entry_method, entry_source, qr_ticket_id, ticket_number, notes, status, payment_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'unpaid') RETURNING *`,
+        [user.company_id, `KIO-${ticketNumber}`, assignedSlotId, "qr", "kiosk", qrTicket.id, sessionTicket, `Kiosk entry: ${displayName}`, 'active']
       );
       const session = sessionRes.rows[0];
 
@@ -74,6 +76,16 @@ export async function POST(req: Request) {
       }
 
       await pool.query("UPDATE parking_qr_tickets SET is_used = true, used_at = CURRENT_TIMESTAMP, session_id = $1 WHERE id = $2", [session.id, qrTicket.id]);
+
+      await logParkingAudit({
+        user,
+        action: "ENTRY",
+        entity: "parking_session",
+        entity_id: session.id,
+        description: `Kiosk entry — ${displayName} (${sessionTicket})${assignedSlotId ? " — space allocated" : ""}`,
+        new_values: { ticket_number: sessionTicket, qr_ticket: ticketNumber, plate: session.plate_number, source: "kiosk" },
+        req,
+      });
 
       return created({
         session,

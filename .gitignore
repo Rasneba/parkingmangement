@@ -23,6 +23,9 @@ build/
 tsconfig.tsbuildinfo
 .vercel
 
+# local run notes (contain device credentials / internal IPs)
+RUN-LOCAL.txt
+
 # generated test artifacts
 coverage/
 

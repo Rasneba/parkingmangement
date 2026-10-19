@@ -4,11 +4,11 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  AlertTriangle, BadgeCheck, Banknote, CheckCircle2, Clock, DoorOpen, Printer, QrCode,
+  AlertTriangle, BadgeCheck, Banknote, CheckCircle2, Clock, DoorOpen, Grid3x3, Printer, QrCode,
   ScanLine, Search, Ticket, X,
 } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, EmptyState, Field, Input, Select, Skeleton, Switch,
+  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Segmented, Skeleton, Switch,
   cn, fmtDateTime, fmtDuration, fmtMoney, relativeTime, useToast,
 } from "@/lib/ui";
 import { apiFetch, apiGet, apiPost } from "@/lib/client";
@@ -51,6 +51,35 @@ interface ExitResult {
   idempotent?: boolean;
 }
 
+interface OccSlot {
+  id: number;
+  zone_id: number;
+  slot_number: string;
+  status: string;
+  session_id: number | null;
+  ticket_number: string | null;
+  plate_number: string | null;
+  zone_name: string;
+  zone_code: string;
+}
+
+interface FloorMapRes {
+  zones: Array<{
+    id: number;
+    name: string;
+    code: string;
+    slots: Array<{
+      id: number;
+      zone_id: number;
+      slot_number: string;
+      status: string;
+      session_id: number | null;
+      ticket_number: string | null;
+      plate_number: string | null;
+    }>;
+  }>;
+}
+
 export default function VehicleExitPage() {
   return (
     <Suspense fallback={<div className="flex justify-center py-16"><div className="pk-spinner" /></div>}>
@@ -80,7 +109,46 @@ function ExitStation() {
   const [settleLoading, setSettleLoading] = useState(false);
   const [receipt, setReceipt] = useState<ExitResult | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
+  const [occSlots, setOccSlots] = useState<OccSlot[]>([]);
+  const [occLoading, setOccLoading] = useState(true);
+  const [mode, setMode] = useState<"self" | "cashier">("cashier");
+  const [adp, setAdp] = useState<{ tx_ref: string; checkout_url: string; amount: number; currency: string } | null>(null);
+  const [adpQr, setAdpQr] = useState<string | null>(null);
+  const [adpBusy, setAdpBusy] = useState(false);
+  const [adpStatus, setAdpStatus] = useState<string | null>(null);
+  const pollRef = useRef<number | null>(null);
   const idemKey = useRef<string>("");
+
+  const loadOccupied = useCallback(async () => {
+    setOccLoading(true);
+    try {
+      const fm = await apiGet<FloorMapRes>("/api/membership/parking/floor-map");
+      const rows: OccSlot[] = fm.zones.flatMap((z) =>
+        z.slots
+          .filter((s) => s.status === "occupied" && s.session_id)
+          .map((s) => ({
+            id: s.id,
+            zone_id: s.zone_id,
+            slot_number: s.slot_number,
+            status: s.status,
+            session_id: s.session_id,
+            ticket_number: s.ticket_number,
+            plate_number: s.plate_number,
+            zone_name: z.name,
+            zone_code: z.code,
+          }))
+      );
+      setOccSlots(rows.sort((a, b) => a.slot_number.localeCompare(b.slot_number)));
+    } catch {
+      setOccSlots([]);
+    } finally {
+      setOccLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOccupied();
+  }, [loadOccupied]);
 
   const doLookup = useCallback(async (term: string) => {
     const needle = term.trim();
@@ -138,6 +206,7 @@ function ExitStation() {
       setLookup(null);
       setQ("");
       setReference("");
+      loadOccupied();
       toast.success(
         res.idempotent ? "Already settled" : `Exit complete — ${fmtMoney(res.payment.amount, res.pricing.currency)}`,
         `Receipt ${res.payment.receipt_number} · space released`
@@ -149,45 +218,162 @@ function ExitStation() {
     }
   };
 
+  const finishAddisPaySuccess = useCallback(
+    (sessionId: number | null) => {
+      setAdp(null);
+      setAdpQr(null);
+      setAdpStatus(null);
+      setLookup(null);
+      setQ("");
+      setReference("");
+      loadOccupied();
+      toast.success("Payment received", "Exit complete - space released");
+      if (sessionId) doLookup(String(sessionId));
+    },
+    [doLookup, loadOccupied]
+  );
+
+  const startAddisPay = async () => {
+    if (!lookup?.session || !pricing) return;
+    setAdpBusy(true);
+    try {
+      const res = await apiPost<{
+        status: string;
+        tx_ref?: string;
+        checkout_url?: string;
+        amount?: number;
+        currency?: string;
+        message?: string;
+      }>("/api/membership/parking/addispay/initialize", {
+        session_id: lookup.session.id,
+        phone_number: session?.owner_phone || undefined,
+        email: session?.owner_email || undefined,
+        return_url: `/dashboard/membership/parking/exit?addispay=pending&session=${lookup.session.id}`,
+      });
+      if (res.status === "success" && res.checkout_url && res.tx_ref) {
+        setAdp({
+          tx_ref: res.tx_ref,
+          checkout_url: res.checkout_url,
+          amount: res.amount ?? pricing.amountDue,
+          currency: res.currency ?? pricing.currency,
+        });
+        setAdpStatus("pending");
+        try {
+          const QRCode = (await import("qrcode")).default;
+          setAdpQr(await QRCode.toDataURL(res.checkout_url, { width: 280, margin: 1 }));
+        } catch {
+          setAdpQr(null);
+        }
+        window.open(res.checkout_url, "_blank", "noopener");
+      } else {
+        toast.error("AddisPay", res.message || "Could not start the online payment");
+      }
+    } catch (e: any) {
+      toast.error("AddisPay", e.message);
+    } finally {
+      setAdpBusy(false);
+    }
+  };
+
+  const checkAddisPay = useCallback(
+    async (silent = false) => {
+      if (!adp) return;
+      try {
+        const res = await apiGet<{ status: string; message?: string; session_id?: number | null }>(
+          `/api/membership/parking/addispay/verify/${encodeURIComponent(adp.tx_ref)}`
+        );
+        if (res.status === "success") {
+          finishAddisPaySuccess(res.session_id ?? lookup?.session?.id ?? null);
+        } else {
+          setAdpStatus(res.status || "pending");
+          if (!silent) toast.info("AddisPay", res.status === "pending" ? "Waiting for the payment to complete..." : res.message || "Not completed yet");
+        }
+      } catch (e: any) {
+        if (!silent) toast.error("AddisPay", e.message);
+      }
+    },
+    [adp, finishAddisPaySuccess, lookup?.session?.id]
+  );
+
+  // Auto-poll AddisPay while a checkout is open.
+  useEffect(() => {
+    if (!adp) return;
+    pollRef.current = window.setInterval(() => checkAddisPay(true), 5000);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [adp, checkAddisPay]);
+
+  // Handle the gateway redirect back (?addispay=success&session=...)
+  useEffect(() => {
+    const flag = params.get("addispay");
+    const sid = params.get("session");
+    if (flag === "success") {
+      if (sid) doLookup(sid);
+      loadOccupied();
+      toast.success("Payment received", "Exit complete - space released");
+    } else if (flag && flag !== "pending") {
+      toast.error("AddisPay", `Payment ${flag}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
   const pricing = lookup?.pricing;
   const session = lookup?.session;
   const perms = lookup?.permissions;
 
   return (
     <div className="mx-auto max-w-[1200px]">
-      <div className="mb-5">
+      <div className="mb-4">
         <h1 className="text-xl font-bold tracking-[-0.02em] text-[var(--text-primary)]">Vehicle Exit</h1>
         <p className="mt-1 text-[13px] text-[var(--text-tertiary)]">
-          Search by ticket number, plate or scan the QR — fees are always computed server-side from the active tariff.
+          {mode === "self"
+            ? "Self checkout - scan the customer QR, confirm the fee and let them pay online."
+            : "Cashier / attendant exit - search by ticket, plate or scan the customer QR."}
         </p>
+        <div className="mt-3 max-w-md">
+          <Segmented
+            options={[
+              { value: "self", label: "Self checkout" },
+              { value: "cashier", label: "Cashier / Attendant" },
+            ]}
+            value={mode}
+            onChange={(v) => setMode(v)}
+          />
+        </div>
       </div>
 
       {/* ------------------------------- search ------------------------------ */}
       <Card className="mb-4">
         <form
-          className="flex flex-wrap items-end gap-3 px-5 py-4"
+          className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:flex-wrap sm:items-end sm:px-5"
           onSubmit={(e) => {
             e.preventDefault();
             doLookup(q);
           }}
         >
-          <div className="relative min-w-[240px] flex-1">
+          <div className="relative w-full sm:min-w-[240px] sm:flex-1">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
             <Input
               autoFocus
+              inputMode="text"
+              autoCapitalize="characters"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Ticket number (TKT-…), plate (ABC-123) or session id"
-              aria-label="Ticket or plate"
-              className="h-11 pl-9"
+              placeholder="Ticket (TKT-...), plate (ABC-123) or slot"
+              aria-label="Ticket, plate or slot"
+              className="h-12 pl-9 text-base sm:h-11 sm:text-sm"
             />
           </div>
-          <Button type="submit" size="md" loading={looking} icon={<Search size={15} />} disabled={!q.trim()}>
-            Find session
-          </Button>
-          <Button type="button" size="md" variant={scanOpen ? "secondary" : "outline"} icon={<ScanLine size={15} />} onClick={() => setScanOpen((v) => !v)}>
-            {scanOpen ? "Close scanner" : "Scan QR"}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" size="md" loading={looking} icon={<Search size={15} />} disabled={!q.trim()} className="flex-1 sm:flex-none">
+              Find session
+            </Button>
+            <Button type="button" size="md" variant={scanOpen ? "secondary" : "outline"} icon={<ScanLine size={15} />} onClick={() => setScanOpen((v) => !v)} className="flex-1 sm:flex-none">
+              {scanOpen ? "Close scanner" : "Scan QR"}
+            </Button>
+          </div>
         </form>
         {scanOpen && (
           <QrScanner
@@ -196,7 +382,7 @@ function ExitStation() {
               let needle = text.trim();
               try {
                 const parsed = JSON.parse(text);
-                needle = parsed.ticket_number || (parsed.session_id ? String(parsed.session_id) : needle);
+                needle = parsed.ticket_number || parsed.t || (parsed.session_id ? String(parsed.session_id) : needle);
               } catch {}
               setQ(needle);
               doLookup(needle);
@@ -205,6 +391,39 @@ function ExitStation() {
           />
         )}
       </Card>
+
+      {/* ---------------------------- occupied spaces ------------------------ */}
+      {!lookup && (
+        <Card className="mb-4">
+          <CardHeader icon={<Grid3x3 size={16} />} title="Occupied spaces" subtitle="Tap a space to load its active stay" />
+          <div className="px-4 py-4 sm:px-5">
+            {occLoading ? (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-6">
+                {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+              </div>
+            ) : occSlots.length === 0 ? (
+              <p className="py-4 text-center text-[13px] text-[var(--text-tertiary)]">No vehicles are currently parked.</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-6">
+                {occSlots.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setQ(s.ticket_number || String(s.session_id));
+                      doLookup(String(s.session_id));
+                    }}
+                    className="flex h-16 flex-col items-center justify-center rounded-xl border-2 border-red-500/25 bg-red-500/10 px-1 text-red-600 transition-all select-none hover:border-[var(--primary)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] active:scale-[0.97] dark:text-red-400"
+                  >
+                    <span className="pk-num text-[15px] font-bold leading-none">{s.slot_number}</span>
+                    <span className="mt-1 w-full truncate text-center text-[10px] font-medium">{s.plate_number || "-"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* ----------------------------- multi-match --------------------------- */}
       {matches && (
@@ -304,6 +523,37 @@ function ExitStation() {
                   <p className="font-semibold text-[var(--text-primary)]">Covered by {pricing.covered.label}</p>
                   <p className="mt-0.5">Valid until {String(pricing.covered.end_date).slice(0, 10)}. No payment required — confirm exit to release the space.</p>
                 </div>
+              ) : mode === "self" ? (
+                <>
+                  <div className="rounded-xl border border-[var(--card-border)] bg-[var(--surface-sunken)] px-4 py-4 text-center">
+                    <p className="text-[11.5px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">Amount to pay</p>
+                    <p className="pk-num mt-1 text-3xl font-bold text-[var(--primary)]">{fmtMoney(pricing.amountDue, pricing.currency)}</p>
+                  </div>
+                  <Field label="Payment method" required>
+                    <Select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
+                      <option value="addispay">AddisPay (online / QR)</option>
+                      <option value="cash">Cash</option>
+                      <option value="telebirr">Telebirr</option>
+                      <option value="cbebirr">CBE Birr</option>
+                      <option value="chapa">Chapa</option>
+                      <option value="pos">POS terminal</option>
+                    </Select>
+                  </Field>
+                  {method === "addispay" ? (
+                    <>
+                      <Button size="lg" className="w-full" loading={adpBusy} onClick={startAddisPay} icon={<QrCode size={17} />}>
+                        Pay {fmtMoney(pricing.amountDue, pricing.currency)} with AddisPay
+                      </Button>
+                      <p className="text-center text-[11px] text-[var(--text-tertiary)]">
+                        Opens the AddisPay checkout in a new tab. The space is released automatically once payment is confirmed.
+                      </p>
+                    </>
+                  ) : (
+                    <Field label="Reference (optional)" hint="Receipt number or phone">
+                      <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional" />
+                    </Field>
+                  )}
+                </>
               ) : (
                 <>
                   <Field label="Payment method" required>
@@ -371,21 +621,25 @@ function ExitStation() {
                 </>
               )}
 
-              <div className="flex items-center justify-between rounded-xl bg-[var(--primary-soft)] px-4 py-3">
-                <span className="text-[13px] font-bold text-[var(--text-primary)]">Collect now</span>
-                <span className="pk-num text-lg font-bold text-[var(--primary)]">{fmtMoney(pricing.amountDue, pricing.currency)}</span>
-              </div>
+              {mode === "cashier" && (
+                <div className="flex items-center justify-between rounded-xl bg-[var(--primary-soft)] px-4 py-3">
+                  <span className="text-[13px] font-bold text-[var(--text-primary)]">Collect now</span>
+                  <span className="pk-num text-lg font-bold text-[var(--primary)]">{fmtMoney(pricing.amountDue, pricing.currency)}</span>
+                </div>
+              )}
 
-              <Button
-                size="lg"
-                variant="success"
-                className="w-full"
-                loading={settleLoading}
-                onClick={settle}
-                icon={<DoorOpen size={17} />}
-              >
-                Confirm exit & release space
-              </Button>
+              {(mode === "cashier" || (mode === "self" && method !== "addispay")) && (
+                <Button
+                  size="lg"
+                  variant="success"
+                  className="w-full"
+                  loading={settleLoading}
+                  onClick={settle}
+                  icon={<DoorOpen size={17} />}
+                >
+                  {mode === "self" ? "Confirm payment & release space" : "Confirm exit & release space"}
+                </Button>
+              )}
               <p className="text-center text-[11px] text-[var(--text-tertiary)]">
                 Idempotent — retrying can never charge twice.
               </p>
@@ -421,6 +675,45 @@ function ExitStation() {
 
       {/* ------------------------------ receipt ------------------------------ */}
       {receipt && <ReceiptDialog result={receipt} onClose={() => setReceipt(null)} />}
+
+      {/* --------------------------- AddisPay checkout ----------------------- */}
+      {adp && (
+        <Dialog
+          open
+          onClose={() => { setAdp(null); setAdpQr(null); }}
+          title="AddisPay checkout"
+          subtitle={`Pay ${fmtMoney(adp.amount, adp.currency)} to complete the exit`}
+        >
+          <div className="flex flex-col items-center gap-4">
+            {adpQr ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={adpQr} alt="AddisPay checkout QR" className="h-56 w-56 rounded-xl border border-[var(--card-border)] bg-white p-2" />
+            ) : (
+              <div className="flex h-56 w-56 items-center justify-center rounded-xl border border-dashed border-[var(--card-border)] text-[var(--text-tertiary)]">
+                <QrCode size={40} />
+              </div>
+            )}
+            <p className="text-center text-[12.5px] text-[var(--text-secondary)]">
+              Ask the customer to scan this QR (or use the checkout page already opened) and pay
+              <span className="pk-num font-bold text-[var(--text-primary)]"> {fmtMoney(adp.amount, adp.currency)}</span>.
+              This dialog closes automatically once payment is confirmed.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-[var(--text-tertiary)]">
+              <span>Reference</span>
+              <span className="pk-num font-semibold text-[var(--text-secondary)]">{adp.tx_ref}</span>
+              <Badge tone={adpStatus === "success" ? "success" : "warning"} dot>{adpStatus || "pending"}</Badge>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" className="flex-1" onClick={() => window.open(adp.checkout_url, "_blank", "noopener")}>
+              Open checkout page
+            </Button>
+            <Button className="flex-1" onClick={() => checkAddisPay(false)}>
+              I have paid / Check status
+            </Button>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

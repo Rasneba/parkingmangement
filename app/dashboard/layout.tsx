@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   AlertTriangle, ArrowRightCircle, Banknote, BarChart3, Bell, Building2,
   Car, CircleUser, Clock, CreditCard, LogOut, Menu, Monitor,
-  Moon, ScanLine, Search, Settings2, Sun, Tags, Users, Map as MapIcon, Wrench,
+  Moon, QrCode, ScanLine, Search, Settings2, ShieldCheck, Store, Sun, Tags,
+  Users, Map as MapIcon, Wrench,
 } from "lucide-react";
 import { getToken, getUser, clearSession, type SessionUser } from "@/lib/client";
 import { Badge, Button, Dropdown, DropdownItem, IconButton, ToastProvider, cn, fmtDateTime } from "@/lib/ui";
@@ -55,6 +56,16 @@ const NAV: NavGroup[] = [
       { label: "Customers", href: `${BASE}/customers`, icon: <Users size={17} /> },
       { label: "Vehicles", href: `${BASE}/vehicles`, icon: <Car size={17} /> },
       { label: "Memberships", href: `${BASE}/memberships`, icon: <CreditCard size={17} /> },
+    ],
+  },
+  {
+    label: "Access",
+    items: [
+      { label: "Access Control", href: `${BASE}/access`, icon: <ShieldCheck size={17} /> },
+      { label: "RFID Cards", href: `${BASE}/rfid-cards`, icon: <CreditCard size={17} /> },
+      { label: "QR Access", href: `${BASE}/qr-access`, icon: <ScanLine size={17} /> },
+      { label: "QR Tickets", href: `${BASE}/qr-tickets`, icon: <QrCode size={17} /> },
+      { label: "Kiosk", href: `${BASE}/kiosk`, icon: <Store size={17} /> },
     ],
   },
   {

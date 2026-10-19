@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS relay_commands (
     action      VARCHAR(40) NOT NULL DEFAULT 'open_door',
     payload     JSONB,
     status      VARCHAR(20) NOT NULL DEFAULT 'pending'
-                CHECK (status IN ('pending','done','failed')),
+                CHECK (status IN ('pending','running','done','failed')),
     created_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

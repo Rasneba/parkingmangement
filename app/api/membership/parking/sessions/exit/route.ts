@@ -55,12 +55,35 @@ export async function GET(req: Request) {
       );
       row = res.rows[0] || null;
       const candidates = res.rows;
-      if (!row) return notFound("No parking session matches that ticket or plate");
-      if (candidates.length > 1) {
+      if (row && candidates.length > 1) {
         // Multiple matches (e.g. history for a plate): return the list for selection.
         return ok({ matches: candidates.map((c: any) => ({ id: c.id, ticket_number: c.ticket_number, plate_number: c.plate_number, entry_time: c.entry_time, status: c.status })) });
       }
     }
+
+    // Fallback: resolve a kiosk/QR ticket number (e.g. QR-000001) to its session.
+    if (!row) {
+      const qres = await pool.query(
+        `SELECT ps.*, pv.vehicle_type, pv.vehicle_model, pv.vehicle_color, pv.owner_name, pv.owner_phone,
+                mm.full_name AS customer_name, s.slot_number, z.name AS zone_name, z.floor,
+                pq.ticket_number AS qr_ticket_number, pq.visitor_name, pq.visitor_phone
+         FROM parking_sessions ps
+         JOIN parking_qr_tickets pq ON pq.session_id = ps.id
+         LEFT JOIN parking_vehicles pv ON pv.id = ps.vehicle_id
+         LEFT JOIN membership_members mm ON mm.id = pv.customer_id
+         LEFT JOIN parking_slots s ON s.id = ps.slot_id
+         LEFT JOIN parking_zones z ON z.id = s.zone_id
+         WHERE ps.company_id = $1 AND UPPER(pq.ticket_number) = $2
+         ORDER BY (ps.status = 'active') DESC, ps.entry_time DESC
+         LIMIT 5`,
+        [user.company_id, q.toUpperCase()]
+      );
+      row = qres.rows[0] || null;
+      if (row && qres.rows.length > 1) {
+        return ok({ matches: qres.rows.map((c: any) => ({ id: c.id, ticket_number: c.ticket_number, plate_number: c.plate_number, entry_time: c.entry_time, status: c.status })) });
+      }
+    }
+    if (!row) return notFound("No parking session matches that ticket, plate or QR");
 
     if (row.status === "completed") {
       return conflict(`Session ${row.ticket_number} already exited at ${row.exit_time}`);

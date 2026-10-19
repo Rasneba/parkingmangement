@@ -3,8 +3,27 @@ import { homedir } from "os";
 import { join } from "path";
 import pg from "pg";
 
+function loadEnvDatabaseUrl() {
+  for (const p of [new URL("../.env", import.meta.url), ".env"]) {
+    try {
+      const content = readFileSync(p, "utf8");
+      for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("#")) continue;
+        if (!line.startsWith("DATABASE_URL=")) continue;
+        let v = line.slice("DATABASE_URL=".length).trim();
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+          v = v.slice(1, -1);
+        }
+        return v;
+      }
+    } catch {}
+  }
+  return null;
+}
+
 const DEFAULTS = {
-  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/genius_hrms",
+  DATABASE_URL: loadEnvDatabaseUrl() || "postgresql://postgres:postgres@localhost:5432/genius_hrms",
   CONTROLLER_IP: "192.168.0.68",
   CONTROLLER_PORT: 80,
   CONTROLLER_USERNAME: "admin",
