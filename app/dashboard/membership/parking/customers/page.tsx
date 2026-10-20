@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Car, Clock, Download, Eye, Phone, Plus, UserPlus, Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Car, Clock, Download, Eye, Nfc, Phone, Plus, UserPlus, Users } from "lucide-react";
 import {
   Badge, Button, Card, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
   Select, Skeleton, useToast, fmtDate, fmtMoney, relativeTime, type Column,
 } from "@/lib/ui";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/client";
+import { createWebNfcReader, isWebNfcSupported } from "@/lib/web-nfc";
+import { normalizeCardUid } from "@/lib/card-uid";
 
 interface Customer {
   id: number;
@@ -38,6 +40,13 @@ interface HistoryRow {
   id: number; ticket_number: string; plate_number: string; entry_time: string; exit_time: string | null;
   duration_minutes: number | null; amount: string | null; status: string; payment_status: string;
 }
+interface NfcCard {
+  id: number;
+  card_uid: string;
+  label: string | null;
+  status: string;
+  last_used_at: string | null;
+}
 
 const VEHICLE_TYPES = ["car", "suv", "truck", "bus", "motorcycle", "bicycle", "other"];
 
@@ -54,6 +63,7 @@ export default function CustomersPage() {
   const [detailVehicles, setDetailVehicles] = useState<Vehicle[] | null>(null);
   const [detailHistory, setDetailHistory] = useState<HistoryRow[] | null>(null);
   const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null);
+  const [nfcCustomer, setNfcCustomer] = useState<Customer | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q), 350);
@@ -139,6 +149,7 @@ export default function CustomersPage() {
     {
       key: "actions", label: "", align: "right", render: (c) => (
         <div className="flex justify-end gap-1">
+          <Button size="xs" variant="ghost" icon={<Nfc size={13} />} onClick={() => setNfcCustomer(c)} aria-label={`Issue NFC card for ${c.full_name}`} />
           <Button size="xs" variant="ghost" icon={<Eye size={13} />} onClick={() => openDetail(c)} aria-label={`View ${c.full_name}`} />
           <Button size="xs" variant="ghost" icon={<PencilIcon />} onClick={() => setEdit(c)} aria-label={`Edit ${c.full_name}`} />
           <Button size="xs" variant="ghost" className="text-[var(--accent-red)]" icon={<TrashIcon />} onClick={() => setConfirmDelete(c)} aria-label={`Delete ${c.full_name}`} />
@@ -180,6 +191,7 @@ export default function CustomersPage() {
 
       <CustomerDialog customer={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
       <VehicleDialog vehicle={editVehicle} customers={customers ?? []} onClose={() => setEditVehicle(null)} onSaved={() => { setEditVehicle(null); if (detail) openDetail(detail); }} />
+      <NfcIssueDialog customer={nfcCustomer} onClose={() => setNfcCustomer(null)} />
 
       {/* detail drawer */}
       <Dialog open={!!detail} onClose={() => setDetail(null)} title={detail?.full_name ?? ""} subtitle={detail ? `${detail.customer_id || `#${detail.id}`} · member since ${fmtDate(detail.start_date)}` : undefined} size="lg"
@@ -261,6 +273,185 @@ function TrashIcon() {
 }
 
 /* -------------------------------- dialogs --------------------------------- */
+
+function NfcIssueDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
+  const toast = useToast();
+  const [uid, setUid] = useState("");
+  const [label, setLabel] = useState("");
+  const [cards, setCards] = useState<NfcCard[] | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const loadCards = useCallback(async () => {
+    if (!customer) return;
+    try {
+      setCards(await apiGet<NfcCard[]>(`/api/membership/parking/rfid-cards?member_id=${customer.id}`));
+    } catch {
+      setCards([]);
+    }
+  }, [customer]);
+
+  useEffect(() => {
+    if (!customer) return;
+    setUid("");
+    setLabel("");
+    setError(null);
+    setCards(null);
+    loadCards();
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, [customer, loadCards]);
+
+  const stopScan = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setScanning(false);
+  }, []);
+
+  const startScan = async () => {
+    setError(null);
+    if (!isWebNfcSupported()) {
+      setError("Web NFC is not supported here. Use Chrome on Android over HTTPS, or type the card UID.");
+      return;
+    }
+    const reader = createWebNfcReader();
+    if (!reader) {
+      setError("Could not start the NFC reader on this device.");
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setScanning(true);
+    reader.addEventListener("reading", (event) => {
+      if (!abortRef.current) return;
+      const cardUid = normalizeCardUid(event.serialNumber);
+      if (!cardUid) return;
+      setUid(cardUid);
+      stopScan();
+      toast.success("NFC tag read", cardUid);
+    });
+    try {
+      await reader.scan({ signal: controller.signal });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setError(e?.message || "Could not start NFC scanning.");
+      }
+      setScanning(false);
+    }
+  };
+
+  const issue = async () => {
+    if (!customer) return;
+    const cardUid = normalizeCardUid(uid);
+    if (!cardUid) {
+      setError("Tap an NFC tag or enter its UID first.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost("/api/membership/parking/rfid-cards", {
+        card_uid: cardUid,
+        member_id: customer.id,
+        label: label.trim() || `NFC - ${customer.full_name}`,
+      });
+      toast.success("NFC card issued", `${cardUid} → ${customer.full_name}`);
+      setUid("");
+      setLabel("");
+      await loadCards();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={!!customer}
+      onClose={onClose}
+      title="Issue NFC card"
+      subtitle={customer ? `${customer.full_name} - ${customer.customer_id || `#${customer.id}`}` : undefined}
+      size="md"
+      footer={
+        <>
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+          <Button size="sm" loading={busy} disabled={!uid.trim()} onClick={issue} icon={<Nfc size={14} />}>
+            Issue card
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-xl border border-[var(--card-border)] bg-[var(--surface-sunken)] px-4 py-4">
+          <p className="text-[12.5px] text-[var(--text-secondary)]">
+            Hold the NFC tag against the back of an Android phone, then tap Scan. The UID is filled in automatically.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" loading={scanning} onClick={startScan} icon={<Nfc size={14} />}>
+              {scanning ? "Scanning…" : "Scan NFC tag"}
+            </Button>
+            {scanning && (
+              <Button size="sm" variant="ghost" onClick={stopScan}>
+                Stop
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <Field label="Card UID" required hint="Scanned automatically, or type the UID printed on the tag.">
+          <Input value={uid} onChange={(e) => setUid(e.target.value)} placeholder="04:A1:B2:C3:…" autoComplete="off" />
+        </Field>
+        <Field label="Label (optional)">
+          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={`e.g. NFC - ${customer?.full_name ?? "member"}`} />
+        </Field>
+
+        {error && (
+          <p className="rounded-lg border border-red-500/25 bg-red-500/5 px-3 py-2 text-[12.5px] text-[var(--accent-red)]">
+            {error}
+          </p>
+        )}
+
+        <div>
+          <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
+            Cards linked to this customer
+          </p>
+          {!cards ? (
+            <Skeleton className="h-12" />
+          ) : cards.length === 0 ? (
+            <p className="text-[13px] text-[var(--text-tertiary)]">No NFC card issued yet.</p>
+          ) : (
+            <ul className="divide-y divide-[var(--card-border)] rounded-xl border border-[var(--card-border)]">
+              {cards.map((card) => (
+                <li key={card.id} className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-[12.5px]">
+                  <span className="pk-num font-semibold">{card.card_uid}</span>
+                  <span className="text-[var(--text-tertiary)]">{card.label || "Unlabelled"}</span>
+                  <Badge
+                    tone={card.status === "active" ? "success" : card.status === "lost" || card.status === "blocked" ? "danger" : "neutral"}
+                    className="ml-auto"
+                  >
+                    {card.status}
+                  </Badge>
+                  {card.last_used_at && (
+                    <span className="w-full text-[11px] text-[var(--text-tertiary)]">
+                      Last used {relativeTime(card.last_used_at)}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
 
 function CustomerDialog({ customer, onClose, onSaved }: { customer: Customer | null; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();

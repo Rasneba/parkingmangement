@@ -11,7 +11,7 @@ import {
   Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Segmented, Skeleton, Switch,
   fmtDateTime, fmtDuration, fmtMoney, relativeTime, useToast,
 } from "@/lib/ui";
-import { apiGet, apiPost } from "@/lib/client";
+import { apiGet, apiPost, getToken } from "@/lib/client";
 
 const METHODS = [
   { value: "cash", label: "Cash" },
@@ -113,12 +113,21 @@ function ExitStation() {
   const [occSlots, setOccSlots] = useState<OccSlot[]>([]);
   const [occLoading, setOccLoading] = useState(true);
   const [mode, setMode] = useState<"self" | "cashier">(initialMode);
+  const [publicMode, setPublicMode] = useState(false);
   const [adp, setAdp] = useState<{ tx_ref: string; checkout_url: string; amount: number; currency: string } | null>(null);
   const [adpQr, setAdpQr] = useState<string | null>(null);
   const [adpBusy, setAdpBusy] = useState(false);
   const [adpStatus, setAdpStatus] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const idemKey = useRef<string>("");
+
+  useEffect(() => {
+    if (!getToken()) {
+      setPublicMode(true);
+      setMode("self");
+      setMethod("addispay");
+    }
+  }, []);
 
   const loadOccupied = useCallback(async () => {
     setOccLoading(true);
@@ -220,7 +229,7 @@ function ExitStation() {
   };
 
   const finishAddisPaySuccess = useCallback(
-    (sessionId: number | null) => {
+    () => {
       setAdp(null);
       setAdpQr(null);
       setAdpStatus(null);
@@ -229,9 +238,8 @@ function ExitStation() {
       setReference("");
       loadOccupied();
       toast.success("Payment received", "Exit complete - space released");
-      if (sessionId) doLookup(String(sessionId));
     },
-    [doLookup, loadOccupied]
+    [loadOccupied]
   );
 
   const startAddisPay = async () => {
@@ -284,7 +292,7 @@ function ExitStation() {
           `/api/membership/parking/addispay/verify/${encodeURIComponent(adp.tx_ref)}`
         );
         if (res.status === "success") {
-          finishAddisPaySuccess(res.session_id ?? lookup?.session?.id ?? null);
+          finishAddisPaySuccess();
         } else {
           setAdpStatus(res.status || "pending");
           if (!silent) toast.info("AddisPay", res.status === "pending" ? "Waiting for the payment to complete..." : res.message || "Not completed yet");
@@ -293,7 +301,7 @@ function ExitStation() {
         if (!silent) toast.error("AddisPay", e.message);
       }
     },
-    [adp, finishAddisPaySuccess, lookup?.session?.id]
+    [adp, finishAddisPaySuccess]
   );
 
   // Auto-poll AddisPay while a checkout is open.
@@ -309,24 +317,33 @@ function ExitStation() {
   // Handle the gateway redirect back (?addispay=success&session=...)
   useEffect(() => {
     const flag = params.get("addispay");
-    const sid = params.get("session");
     if (flag === "success") {
-      if (sid) doLookup(sid);
+      setLookup(null);
+      setQ("");
+      setAdp(null);
+      setAdpQr(null);
+      setAdpStatus(null);
       loadOccupied();
       toast.success("Payment received", "Exit complete - space released");
     } else if (flag && flag !== "pending") {
       toast.error("AddisPay", `Payment ${flag}`);
     }
-  }, [params]);
+  }, [params, loadOccupied, toast]);
 
   // Keep mode + method in sync with the ?mode= query param (sidebar links).
+  // Public kiosks are always self-service and cannot switch to cashier mode.
   useEffect(() => {
+    if (publicMode) {
+      setMode("self");
+      setMethod("addispay");
+      return;
+    }
     const m = params.get("mode");
     if (m === "self" || m === "cashier") {
       setMode(m);
       setMethod((prev) => (m === "self" ? "addispay" : prev === "addispay" ? "cash" : prev));
     }
-  }, [params]);
+  }, [params, publicMode]);
 
   const pricing = lookup?.pricing;
   const session = lookup?.session;
@@ -341,19 +358,21 @@ function ExitStation() {
             ? "Self checkout - scan the customer QR, confirm the fee and let them pay online."
             : "Cashier / attendant exit - search by ticket, plate or scan the customer QR."}
         </p>
-        <div className="mt-3 max-w-md">
-          <Segmented
-            options={[
-              { value: "self", label: "Self checkout" },
-              { value: "cashier", label: "Cashier / Attendant" },
-            ]}
-            value={mode}
-            onChange={(v) => {
-              setMode(v);
-              setMethod((prev) => (v === "self" ? "addispay" : prev === "addispay" ? "cash" : prev));
-            }}
-          />
-        </div>
+        {!publicMode && (
+          <div className="mt-3 max-w-md">
+            <Segmented
+              options={[
+                { value: "self", label: "Self checkout" },
+                { value: "cashier", label: "Cashier / Attendant" },
+              ]}
+              value={mode}
+              onChange={(v) => {
+                setMode(v);
+                setMethod((prev) => (v === "self" ? "addispay" : prev === "addispay" ? "cash" : prev));
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* ------------------------------- search ------------------------------ */}
@@ -405,7 +424,7 @@ function ExitStation() {
       </Card>
 
       {/* ---------------------------- occupied spaces ------------------------ */}
-      {!lookup && (
+      {!lookup && !publicMode && (
         <Card className="mb-4">
           <CardHeader icon={<Grid3x3 size={16} />} title="Occupied spaces" subtitle="Tap a space to load its active stay" />
           <div className="px-4 py-4 sm:px-5">
@@ -518,10 +537,12 @@ function ExitStation() {
                   <dt className="text-[var(--text-tertiary)]">Vehicle</dt>
                   <dd className="font-medium capitalize">{session.vehicle_type || "—"}</dd>
                 </div>
-                <div className="flex justify-between gap-3 border-b border-[var(--card-border)] pb-2">
-                  <dt className="text-[var(--text-tertiary)]">Owner</dt>
-                  <dd className="font-medium">{session.owner_name || session.customer_name || "—"}</dd>
-                </div>
+                {!publicMode && (
+                  <div className="flex justify-between gap-3 border-b border-[var(--card-border)] pb-2">
+                    <dt className="text-[var(--text-tertiary)]">Owner</dt>
+                    <dd className="font-medium">{session.owner_name || session.customer_name || "—"}</dd>
+                  </div>
+                )}
               </dl>
             </div>
           </Card>
@@ -541,16 +562,23 @@ function ExitStation() {
                     <p className="text-[11.5px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">Amount to pay</p>
                     <p className="pk-num mt-1 text-3xl font-bold text-[var(--primary)]">{fmtMoney(pricing.amountDue, pricing.currency)}</p>
                   </div>
-                  <Field label="Payment method" required>
-                    <Select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
-                      <option value="addispay">AddisPay (online / QR)</option>
-                      <option value="cash">Cash</option>
-                      <option value="telebirr">Telebirr</option>
-                      <option value="cbebirr">CBE Birr</option>
-                      <option value="chapa">Chapa</option>
-                      <option value="pos">POS terminal</option>
-                    </Select>
-                  </Field>
+                  {!publicMode && (
+                    <Field label="Payment method" required>
+                      <Select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
+                        <option value="addispay">AddisPay (online / QR)</option>
+                        <option value="cash">Cash</option>
+                        <option value="telebirr">Telebirr</option>
+                        <option value="cbebirr">CBE Birr</option>
+                        <option value="chapa">Chapa</option>
+                        <option value="pos">POS terminal</option>
+                      </Select>
+                    </Field>
+                  )}
+                  {publicMode && (
+                    <p className="rounded-xl border border-[var(--card-border)] bg-[var(--surface-sunken)] px-4 py-3 text-center text-[12.5px] text-[var(--text-secondary)]">
+                      Pay securely online with AddisPay. The space is released automatically once payment is confirmed.
+                    </p>
+                  )}
                   {method === "addispay" ? (
                     <>
                       <Button size="lg" className="w-full" loading={adpBusy} onClick={startAddisPay} icon={<QrCode size={17} />}>
@@ -671,9 +699,11 @@ function ExitStation() {
             title="Search for an active stay"
             body="Enter the ticket number from the windshield ticket, the license plate, or scan the QR code. The server computes the fee from the configured tariff — the client never invents amounts."
             action={
-              <Link href="/dashboard/membership/parking/sessions?status=active">
-                <Button variant="outline" size="sm">Browse active sessions</Button>
-              </Link>
+              !publicMode ? (
+                <Link href="/dashboard/membership/parking/sessions?status=active">
+                  <Button variant="outline" size="sm">Browse active sessions</Button>
+                </Link>
+              ) : undefined
             }
           />
         </Card>

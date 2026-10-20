@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { withAuth, ok, created, err, badRequest } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
+import { isKiosk } from "@/lib/public-kiosk";
 
 export async function GET(req: Request) {
   return withAuth(req, async (user) => {
-    const { allowed } = await requirePermission(user, "view", "parking_slots");
-    if (!allowed) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    const kiosk = isKiosk(user);
+    if (!kiosk) {
+      const { allowed } = await requirePermission(user, "view", "parking_slots");
+      if (!allowed) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    }
     const { searchParams } = new URL(req.url);
     const zoneId = searchParams.get("zone_id");
     const status = searchParams.get("status");
@@ -21,6 +25,18 @@ export async function GET(req: Request) {
       if (status) { query += ` AND ps.status = $${idx}`; params.push(status); idx++; }
       query += " ORDER BY pz.code, ps.slot_number";
       const result = await pool.query(query, params);
+      if (kiosk) {
+        return ok(result.rows.map((s: any) => ({
+          id: s.id,
+          slot_number: s.slot_number,
+          zone_id: s.zone_id,
+          zone_name: s.zone_name,
+          zone_code: s.zone_code,
+          floor: s.floor,
+          status: s.status,
+          type: s.type,
+        })));
+      }
       return ok(result.rows);
     } catch (e: any) { return err(e.message); }
   });

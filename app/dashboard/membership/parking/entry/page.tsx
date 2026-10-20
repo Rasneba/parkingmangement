@@ -9,7 +9,7 @@ import {
   Badge, Button, Card, CardHeader, EmptyState, Field, Select, Skeleton, Textarea,
   cn, fmtDateTime, useToast,
 } from "@/lib/ui";
-import { apiGet, apiPost } from "@/lib/client";
+import { apiGet, apiPost, getToken } from "@/lib/client";
 import { renderTicketImage, shareOrDownload, downloadBlob, ticketFileName } from "@/lib/ticket-image";
 
 const VEHICLE_TYPES = ["car", "suv", "truck", "bus", "motorcycle", "bicycle", "other"];
@@ -80,6 +80,7 @@ function EntryForm() {
   const [result, setResult] = useState<EntryResult | null>(null);
   const [recent, setRecent] = useState<any[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
+  const [publicMode, setPublicMode] = useState(false);
 
   const loadSlots = useCallback(async () => {
     setSlotsLoading(true);
@@ -94,16 +95,17 @@ function EntryForm() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      apiGet<CustomerLite[]>("/api/membership/parking/customers?limit=500"),
-      apiGet<GateLite[]>("/api/membership/parking/gates?limit=100"),
-      loadSlots(),
-    ])
-      .then(([c, g]) => {
-        setCustomers(c);
-        setGates(g);
-      })
-      .catch(() => toast.error("Could not load entry form data", "Check your connection and retry."));
+    const isPublic = !getToken();
+    setPublicMode(isPublic);
+    apiGet<GateLite[]>("/api/membership/parking/gates?limit=100")
+      .then(setGates)
+      .catch(() => setGates([]));
+    if (!isPublic) {
+      apiGet<CustomerLite[]>("/api/membership/parking/customers?limit=500")
+        .then(setCustomers)
+        .catch(() => setCustomers([]));
+    }
+    loadSlots();
   }, [loadSlots]);
 
   // Prefill from the live map ("Start entry here")
@@ -116,6 +118,11 @@ function EntryForm() {
 
   // Debounced plate lookup for instant recognition of registered vehicles
   useEffect(() => {
+    if (publicMode) {
+      setPlateLookup(null);
+      setPlateBusy(false);
+      return;
+    }
     const plate = form.plate.trim().toUpperCase();
     if (plate.length < 3) {
       setPlateLookup(null);
@@ -141,7 +148,7 @@ function EntryForm() {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [form.plate]);
+  }, [form.plate, publicMode]);
 
   const loadRecent = useCallback(async () => {
     setRecentLoading(true);
@@ -155,6 +162,11 @@ function EntryForm() {
     }
   }, []);
   useEffect(() => {
+    if (!getToken()) {
+      setRecent([]);
+      setRecentLoading(false);
+      return;
+    }
     loadRecent();
   }, [loadRecent]);
 
@@ -195,18 +207,18 @@ function EntryForm() {
       const res = await apiPost<EntryResult>("/api/membership/parking/sessions/entry", {
         plate_number: form.plate.trim().toUpperCase(),
         vehicle_type: form.vehicle_type,
-        customer_id: form.customer_id || undefined,
+        customer_id: !publicMode && form.customer_id ? form.customer_id : undefined,
         zone_id: form.zone_id || undefined,
         slot_id: form.slot_id || undefined,
         entry_gate_id: form.entry_gate_id || undefined,
         entry_method: form.entry_method,
-        entry_source: "web",
+        entry_source: publicMode ? "kiosk" : "web",
         notes: form.notes || undefined,
       });
       setResult(res);
       setForm((f) => ({ ...f, plate: "", slot_id: "", notes: "", customer_id: "" }));
       setPlateLookup(null);
-      loadRecent();
+      if (!publicMode) loadRecent();
       loadSlots();
       toast.success(`Ticket ${res.ticket.ticket_number} issued`, res.slot ? `Space ${res.slot.slot_number} assigned` : "No space auto-assigned");
     } catch (e: any) {
@@ -233,8 +245,12 @@ function EntryForm() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader icon={<Zap size={16} />} title="Check-in" subtitle="Select a space and enter the license plate" />
+        <Card className={publicMode ? "lg:col-span-5" : "lg:col-span-3"}>
+          <CardHeader
+            icon={<Zap size={16} />}
+            title="Check-in"
+            subtitle={publicMode ? "Select a free space and enter your license plate" : "Select a space and enter the license plate"}
+          />
           <form onSubmit={submit} className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
             <Field label="License plate" required hint="Registered vehicles are recognized automatically.">
               <div className="relative">
@@ -376,16 +392,18 @@ function EntryForm() {
                     ))}
                   </Select>
                 </Field>
-                <Field label="Customer (optional)">
-                  <Select value={form.customer_id} onChange={(e) => setForm((f) => ({ ...f, customer_id: e.target.value }))} aria-label="Customer">
-                    <option value="">Walk-in guest</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.full_name}{c.phone ? ` - ${c.phone}` : ""}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+                {!publicMode && (
+                  <Field label="Customer (optional)">
+                    <Select value={form.customer_id} onChange={(e) => setForm((f) => ({ ...f, customer_id: e.target.value }))} aria-label="Customer">
+                      <option value="">Walk-in guest</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={String(c.id)}>
+                          {c.full_name}{c.phone ? ` - ${c.phone}` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
                 <Field label="Entry gate">
                   <Select value={form.entry_gate_id} onChange={(e) => setForm((f) => ({ ...f, entry_gate_id: e.target.value }))} aria-label="Entry gate">
                     <option value="">Not specified</option>
@@ -419,6 +437,7 @@ function EntryForm() {
           </form>
         </Card>
 
+        {!publicMode && (
         <Card className="lg:col-span-2">
           <CardHeader title="Recently parked" subtitle="Live feed of active sessions" />
           <div className="max-h-[560px] overflow-y-auto">
@@ -450,6 +469,7 @@ function EntryForm() {
             )}
           </div>
         </Card>
+        )}
       </div>
 
       {result && (

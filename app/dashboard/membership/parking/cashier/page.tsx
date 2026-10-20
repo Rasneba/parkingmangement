@@ -1,15 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
-  ArrowDownToLine, ArrowUpFromLine, Banknote, CheckCircle2, Printer, RefreshCw, Receipt,
+  ArrowDownToLine, ArrowUpFromLine, Banknote, CheckCircle2, Nfc, Printer, RefreshCw, Receipt, ScanLine,
 } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
-  Segmented, Select, Skeleton, Textarea, fmtDateTime, fmtInt, fmtMoney, relativeTime, useToast,
+  Segmented, Select, Skeleton, Textarea, fmtDate, fmtDateTime, fmtInt, fmtMoney, relativeTime, useToast,
   type Column,
 } from "@/lib/ui";
 import { apiGet, apiPost, apiPut } from "@/lib/client";
+import { createWebNfcReader, isWebNfcSupported } from "@/lib/web-nfc";
+import { normalizeCardUid } from "@/lib/card-uid";
 
 interface Shift {
   id: number;
@@ -45,11 +48,55 @@ interface Refund {
 }
 interface ShiftDetail { shift: Shift; movements: Movement[]; paymentSummary: Array<{ payment_method: string; tx: number; total: number }> }
 
+interface NfcSubscription {
+  id: number;
+  plan_type: string | null;
+  start_date: string;
+  end_date: string;
+  amount: string;
+  status: string;
+  auto_renew: boolean;
+  plan_name: string | null;
+  plan_category: string | null;
+  duration_days: number | null;
+  is_current: boolean;
+  days_remaining: number;
+}
+
+interface NfcLookupResult {
+  found: boolean;
+  error?: string;
+  message?: string;
+  card?: { id: number; uid: string; label: string | null; status: string; last_used_at: string | null };
+  member?: {
+    id: number;
+    full_name: string;
+    phone: string | null;
+    email: string | null;
+    customer_id: string | null;
+    status: string;
+    start_date: string;
+    end_date: string;
+    photo_url: string | null;
+  };
+  vehicles?: Array<{
+    id: number;
+    plate_number: string;
+    vehicle_type: string;
+    vehicle_model: string | null;
+    vehicle_color: string | null;
+    is_blacklisted: boolean;
+  }>;
+  subscription?: NfcSubscription | null;
+  subscriptions?: NfcSubscription[];
+  remaining_days?: number;
+}
+
 const METHODS = ["cash", "telebirr", "cbebirr", "chapa", "addispay", "bank", "pos", "credit_card", "debit_card"];
 
 export default function CashierPage() {
   const toast = useToast();
-  const [tab, setTab] = useState<"shift" | "payments" | "refunds">("shift");
+  const [tab, setTab] = useState<"shift" | "nfc" | "payments" | "refunds">("shift");
 
   const [current, setCurrent] = useState<Shift | null>(null);
   const [currentLoading, setCurrentLoading] = useState(true);
@@ -227,6 +274,7 @@ export default function CashierPage() {
           onChange={setTab}
           options={[
             { value: "shift", label: <>Shift</> },
+            { value: "nfc", label: <>NFC lookup</> },
             { value: "payments", label: <>Payments</> },
             { value: "refunds", label: <>Refunds{(refunds ?? []).filter((r) => r.status === "pending").length > 0 && <Badge tone="warning" className="ml-1.5">{(refunds ?? []).filter((r) => r.status === "pending").length}</Badge>}</> },
           ]}
@@ -304,6 +352,9 @@ export default function CashierPage() {
           </Card>
         </div>
       )}
+
+      {/* ------------------------------- nfc tab -------------------------------- */}
+      {tab === "nfc" && <NfcLookupPanel />}
 
       {/* ----------------------------- payments tab ----------------------------- */}
       {tab === "payments" && (
@@ -440,6 +491,347 @@ export default function CashierPage() {
         body={resolveRefund?.action === "process" ? "Marks the refund as paid out to the customer. Ensure the money has actually left the drawer." : "This decision is recorded in the audit log with your identity."}
         confirmLabel={resolveRefund?.action === "reject" ? "Reject" : resolveRefund?.action[0].toUpperCase() + (resolveRefund?.action.slice(1) ?? "")}
       />
+    </div>
+  );
+}
+
+function NfcLookupPanel() {
+  const toast = useToast();
+  const router = useRouter();
+  const [uid, setUid] = useState("");
+  const [result, setResult] = useState<NfcLookupResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const stopScan = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setScanning(false);
+  }, []);
+
+  const lookup = useCallback(
+    async (raw?: string) => {
+      const cardUid = normalizeCardUid(raw ?? uid);
+      if (!cardUid) {
+        setError("Enter a card UID or tap an NFC card.");
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await apiPost<NfcLookupResult>("/api/membership/parking/nfc-lookup", {
+          card_uid: cardUid,
+        });
+        setUid(cardUid);
+        setResult(res);
+        if (res.found && res.member) toast.success("Card matched", res.member.full_name);
+      } catch (e: any) {
+        setResult(null);
+        setError(e.message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [toast, uid]
+  );
+
+  const startScan = async () => {
+    setError(null);
+    if (!isWebNfcSupported()) {
+      setError("Web NFC is not supported in this browser. Use Chrome on Android over HTTPS, or type the card UID.");
+      return;
+    }
+    const reader = createWebNfcReader();
+    if (!reader) {
+      setError("Could not start the NFC reader on this device.");
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setScanning(true);
+    reader.addEventListener("reading", (event) => {
+      if (!abortRef.current) return;
+      const cardUid = normalizeCardUid(event.serialNumber);
+      if (!cardUid) return;
+      stopScan();
+      setUid(cardUid);
+      void lookup(cardUid);
+    });
+    try {
+      await reader.scan({ signal: controller.signal });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setError(e?.message || "Could not start NFC scanning.");
+      }
+      setScanning(false);
+    }
+  };
+
+  const member = result?.member;
+  const vehicles = result?.vehicles ?? [];
+  const current = result?.subscription ?? null;
+  const otherSubs = (result?.subscriptions ?? []).filter((sub) => sub.id !== current?.id);
+  const plate = vehicles[0]?.plate_number ?? null;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <Card>
+        <CardHeader
+          icon={<Nfc size={16} />}
+          title="NFC member lookup"
+          subtitle="Tap a membership card or enter its UID"
+        />
+        <div className="space-y-4 px-5 py-5">
+          <Field label="Card UID" hint="Spaces, colons and hyphens are ignored.">
+            <Input
+              value={uid}
+              onChange={(e) => setUid(e.target.value)}
+              placeholder="04:A1:B2:C3:…"
+              autoComplete="off"
+              aria-label="NFC card UID"
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button size="md" loading={busy} onClick={() => lookup()} icon={<ScanLine size={15} />}>
+              Look up
+            </Button>
+            <Button
+              size="md"
+              variant="outline"
+              loading={scanning}
+              onClick={startScan}
+              icon={<Nfc size={15} />}
+            >
+              {scanning ? "Scanning…" : "Tap NFC"}
+            </Button>
+            {scanning && (
+              <Button size="md" variant="ghost" onClick={stopScan}>
+                Stop
+              </Button>
+            )}
+          </div>
+          {error && (
+            <p className="rounded-lg border border-red-500/25 bg-red-500/5 px-3 py-2 text-[12.5px] text-[var(--accent-red)]">
+              {error}
+            </p>
+          )}
+          <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+            Web NFC works in Chrome on Android over HTTPS. Desktop and iPhone users can type the
+            card UID shown on the tag.
+          </p>
+        </div>
+      </Card>
+
+      <Card className="xl:col-span-2">
+        <CardHeader
+          title="Member details"
+          subtitle="Plate numbers, subscription type and remaining days"
+          actions={
+            result?.card ? (
+              <Badge tone={result.card.status === "active" ? "success" : "neutral"} dot>
+                {result.card.status}
+              </Badge>
+            ) : undefined
+          }
+        />
+        {!result ? (
+          <EmptyState
+            icon={<Nfc size={22} />}
+            title="No card scanned"
+            body="Tap a card or look one up by UID to see the member and their parking subscription."
+          />
+        ) : !result.found ? (
+          <div className="space-y-3 px-5 py-6">
+            <p className="text-[13px] font-semibold text-[var(--text-primary)]">
+              {result.message || "Card not recognised"}
+            </p>
+            {result.card && (
+              <p className="text-[12px] text-[var(--text-tertiary)]">
+                Card: <span className="pk-num">{result.card.uid}</span>
+                {result.card.label ? ` - ${result.card.label}` : ""}
+              </p>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setResult(null);
+                setUid("");
+              }}
+            >
+              Try another card
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-5 px-5 py-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className="flex h-11 w-11 items-center justify-center rounded-full text-[15px] font-bold text-white"
+                style={{ background: "linear-gradient(135deg,#1d4ed8,#0e9bdb)" }}
+              >
+                {(member?.full_name || "?").charAt(0).toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-bold text-[var(--text-primary)]">
+                  {member?.full_name}
+                </p>
+                <p className="text-[12px] text-[var(--text-tertiary)]">
+                  {member?.customer_id || `#${member?.id}`}
+                  {member?.phone ? ` - ${member.phone}` : ""}
+                </p>
+              </div>
+              <Badge
+                tone={
+                  member?.status === "active"
+                    ? "success"
+                    : member?.status === "suspended"
+                      ? "warning"
+                      : "neutral"
+                }
+                dot
+                className="ml-auto"
+              >
+                {member?.status}
+              </Badge>
+            </div>
+
+            <div>
+              <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
+                Vehicle plates
+              </p>
+              {vehicles.length === 0 ? (
+                <p className="text-[13px] text-[var(--text-tertiary)]">
+                  No vehicle linked to this member.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {vehicles.map((vehicle) => (
+                    <Badge
+                      key={vehicle.id}
+                      tone={vehicle.is_blacklisted ? "danger" : "neutral"}
+                      className="pk-num"
+                    >
+                      {vehicle.plate_number}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div
+              className={
+                current
+                  ? "rounded-xl border border-emerald-500/25 bg-emerald-500/5 px-4 py-4"
+                  : "rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-4"
+              }
+            >
+              {current ? (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
+                        Subscription
+                      </p>
+                      <p className="mt-1 text-[15px] font-bold text-[var(--text-primary)]">
+                        {current.plan_name || current.plan_type || "Parking subscription"}
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-[var(--text-secondary)]">
+                        Type:{" "}
+                        <span className="font-medium">
+                          {current.plan_type || current.plan_category || "parking"}
+                        </span>
+                        {current.plan_category ? ` - ${current.plan_category}` : ""}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="pk-num text-3xl font-bold text-emerald-600 dark:text-emerald-400">
+                        {result.remaining_days ?? current.days_remaining}
+                      </p>
+                      <p className="text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">
+                        days left
+                      </p>
+                    </div>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-[12.5px] sm:grid-cols-3">
+                    <div className="rounded-lg bg-[var(--card-bg)] px-3 py-2">
+                      <dt className="text-[10px] uppercase text-[var(--text-tertiary)]">Valid from</dt>
+                      <dd className="mt-0.5 font-medium">{fmtDate(current.start_date)}</dd>
+                    </div>
+                    <div className="rounded-lg bg-[var(--card-bg)] px-3 py-2">
+                      <dt className="text-[10px] uppercase text-[var(--text-tertiary)]">Valid until</dt>
+                      <dd className="mt-0.5 font-medium">{fmtDate(current.end_date)}</dd>
+                    </div>
+                    <div className="rounded-lg bg-[var(--card-bg)] px-3 py-2">
+                      <dt className="text-[10px] uppercase text-[var(--text-tertiary)]">Status</dt>
+                      <dd className="mt-0.5 font-medium capitalize">{current.status}</dd>
+                    </div>
+                  </dl>
+                </>
+              ) : (
+                <div>
+                  <p className="text-[13px] font-bold text-[var(--text-primary)]">
+                    No active subscription covering today
+                  </p>
+                  <p className="mt-1 text-[12px] text-[var(--text-secondary)]">
+                    The member can still be looked up, but parking is charged at the normal tariff.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {otherSubs.length > 0 && (
+              <details className="rounded-xl border border-[var(--card-border)]">
+                <summary className="cursor-pointer px-4 py-3 text-[12.5px] font-semibold text-[var(--text-primary)]">
+                  Other subscriptions ({otherSubs.length})
+                </summary>
+                <ul className="divide-y divide-[var(--card-border)]">
+                  {otherSubs.map((sub) => (
+                    <li key={sub.id} className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[12.5px]">
+                      <span className="font-medium">{sub.plan_name || sub.plan_type || "Parking plan"}</span>
+                      <span className="text-[var(--text-tertiary)]">
+                        {fmtDate(sub.start_date)} → {fmtDate(sub.end_date)}
+                      </span>
+                      <Badge tone={sub.is_current ? "success" : "neutral"} className="ml-auto">
+                        {sub.status}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setResult(null);
+                  setUid("");
+                }}
+              >
+                Clear
+              </Button>
+              {plate && (
+                <Button
+                  size="sm"
+                  icon={<Banknote size={14} />}
+                  onClick={() =>
+                    router.push(
+                      `/dashboard/membership/parking/exit?mode=cashier&q=${encodeURIComponent(plate)}`
+                    )
+                  }
+                >
+                  Open cashier exit
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

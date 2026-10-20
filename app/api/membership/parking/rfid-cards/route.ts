@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { withAuth, ok, created, err, badRequest } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
+import { normalizeCardUid } from "@/lib/card-uid";
 
 export async function GET(req: Request) {
   return withAuth(req, async (user) => {
@@ -38,18 +39,29 @@ export async function POST(req: Request) {
     try {
       const body = await req.json();
       const { card_uid, member_id, label, status } = body;
-      if (!card_uid) return badRequest("Card UID is required");
+      const cardUid = normalizeCardUid(card_uid);
+      if (!cardUid) return badRequest("Card UID is required");
+
+      if (member_id) {
+        const member = await pool.query(
+          "SELECT id FROM membership_members WHERE id = $1 AND company_id = $2",
+          [member_id, user.company_id]
+        );
+        if (!member.rows[0]) return badRequest("Member not found");
+      }
 
       const existing = await pool.query(
-        "SELECT id FROM rfid_cards WHERE company_id = $1 AND card_uid = $2",
-        [user.company_id, card_uid]
+        `SELECT id FROM rfid_cards
+         WHERE company_id = $1
+           AND UPPER(REPLACE(REPLACE(REPLACE(card_uid, ' ', ''), ':', ''), '-', '')) = $2`,
+        [user.company_id, cardUid]
       );
       if (existing.rows.length > 0) return badRequest("Card UID already exists");
 
       const result = await pool.query(
         `INSERT INTO rfid_cards (company_id, member_id, card_uid, label, status, created_by)
          VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [user.company_id, member_id || null, card_uid, label || null, status || "active", user.id]
+        [user.company_id, member_id || null, cardUid, label || null, status || "active", user.id]
       );
       return created(result.rows[0]);
     } catch (e: any) { return err(e.message); }

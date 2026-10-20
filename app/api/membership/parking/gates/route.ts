@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { withAuth, ok, created, err, badRequest } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
+import { isKiosk } from "@/lib/public-kiosk";
 
 export async function GET(req: Request) {
   return withAuth(req, async (user) => {
-    const { allowed } = await requirePermission(user, "view", "parking_gates");
-    if (!allowed) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    const kiosk = isKiosk(user);
+    if (!kiosk) {
+      const { allowed } = await requirePermission(user, "view", "parking_gates");
+      if (!allowed) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    }
     try {
       const result = await pool.query(
         `SELECT pg.*,
@@ -16,6 +20,13 @@ export async function GET(req: Request) {
          ORDER BY pg.name`,
         [user.company_id]
       );
+      if (kiosk) {
+        return ok(result.rows.map((g: any) => ({
+          id: g.id,
+          name: g.name,
+          code: g.code,
+        })));
+      }
       return ok(result.rows);
     } catch (e: any) { return err(e.message); }
   });

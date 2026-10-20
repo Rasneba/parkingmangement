@@ -4,6 +4,8 @@ import { requirePermission } from "@/lib/permissions";
 import { nextNumber, dailyPeriodKey } from "@/lib/id-generator";
 import { qrDataUrl, buildTicketPayload } from "@/lib/qr";
 import { logParkingAudit } from "@/lib/audit";
+import { isKiosk } from "@/lib/public-kiosk";
+import { rateLimit, requestIp } from "@/lib/rate-limit";
 
 const PLATE_RE = /^[A-Z0-9][A-Z0-9\s\-]{1,19}$/;
 
@@ -18,8 +20,14 @@ const PLATE_RE = /^[A-Z0-9][A-Z0-9\s\-]{1,19}$/;
  */
 export async function POST(req: Request) {
   return withAuth(req, async (user) => {
-    const perm = await requirePermission(user, "create", "parking_sessions");
-    if (!perm.allowed) return err("Permission denied", 403);
+    const kiosk = isKiosk(user);
+    if (kiosk && !rateLimit(`kiosk-entry:${requestIp(req)}`, 60, 60_000)) {
+      return err("Too many check-ins from this network. Please try again shortly.", 429);
+    }
+    if (!kiosk) {
+      const perm = await requirePermission(user, "create", "parking_sessions");
+      if (!perm.allowed) return err("Permission denied", 403);
+    }
     if (!user.company_id) return badRequest("Company required");
 
     const body = await req.json().catch(() => null);
@@ -27,7 +35,7 @@ export async function POST(req: Request) {
 
     const plate = String(body.plate_number || "").trim().toUpperCase();
     const vehicleType = body.vehicle_type ? String(body.vehicle_type) : null;
-    const customerId = body.customer_id ? Number(body.customer_id) : null;
+    const customerId = !kiosk && body.customer_id ? Number(body.customer_id) : null;
     const zoneId = body.zone_id ? Number(body.zone_id) : null;
     const slotId = body.slot_id ? Number(body.slot_id) : null;
     const entryGateId = body.entry_gate_id ? Number(body.entry_gate_id) : null;
@@ -36,9 +44,14 @@ export async function POST(req: Request) {
     if (slotId !== null && !Number.isFinite(slotId)) return badRequest("Invalid space");
     if (entryGateId !== null && !Number.isFinite(entryGateId)) return badRequest("Invalid gate");
     const entryMethod = ["manual", "anpr", "qr", "rfid", "nfc"].includes(body.entry_method) ? body.entry_method : "manual";
-    const entrySource = ["web", "kiosk", "bridge", "mobile", "api"].includes(body.entry_source) ? body.entry_source : "web";
+    const entrySource = kiosk
+      ? "kiosk"
+      : ["web", "kiosk", "bridge", "mobile", "api"].includes(body.entry_source)
+        ? body.entry_source
+        : "web";
     const notes = body.notes ? String(body.notes).slice(0, 500) : null;
 
+    if (kiosk && !plate) return badRequest("License plate is required");
     if (!plate && !body.vehicle_id) return badRequest("License plate is required");
     if (plate && !PLATE_RE.test(plate)) return badRequest("Invalid license plate format");
 
@@ -70,7 +83,7 @@ export async function POST(req: Request) {
       }
 
       // Resolve (or create) the vehicle.
-      let vehicleId = body.vehicle_id ? Number(body.vehicle_id) : null;
+      let vehicleId = !kiosk && body.vehicle_id ? Number(body.vehicle_id) : null;
       effectivePlate = plate;
       let effectiveType = vehicleType;
       if (vehicleId) {
@@ -156,10 +169,12 @@ export async function POST(req: Request) {
       }
 
       // Operator's open shift (if any) for shift-attribution.
-      const shiftRes = await client.query(
-        `SELECT id FROM parking_shifts WHERE company_id = $1 AND operator_id = $2 AND status = 'open' ORDER BY id DESC LIMIT 1`,
-        [user.company_id, user.id]
-      );
+      const shiftId = kiosk
+        ? null
+        : (await client.query(
+            `SELECT id FROM parking_shifts WHERE company_id = $1 AND operator_id = $2 AND status = 'open' ORDER BY id DESC LIMIT 1`,
+            [user.company_id, user.id]
+          )).rows[0]?.id ?? null;
 
       const ticketNumber = await nextNumber(user.company_id, "session_ticket", "TKT", {
         pad: 6,
@@ -175,8 +190,8 @@ export async function POST(req: Request) {
          RETURNING *`,
         [
           user.company_id, vehicleId, effectivePlate, effectiveType, entryGateId || null,
-          assignedSlot?.id || null, entryMethod, entrySource, user.id,
-          shiftRes.rows[0]?.id || null, ticketNumber, notes,
+          assignedSlot?.id || null, entryMethod, entrySource, kiosk ? null : user.id,
+          shiftId, ticketNumber, notes,
         ]
       );
       const session = ins.rows[0];
@@ -202,7 +217,8 @@ export async function POST(req: Request) {
       await client.query("COMMIT");
 
       await logParkingAudit({
-        user,
+        user: kiosk ? null : user,
+        company_id: user.company_id,
         action: "ENTRY",
         entity: "parking_session",
         entity_id: session.id,

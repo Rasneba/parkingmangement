@@ -4,6 +4,8 @@ import { requirePermission, can } from "@/lib/permissions";
 import { nextNumber } from "@/lib/id-generator";
 import { priceSession, validateDiscount } from "@/lib/pricing";
 import { logParkingAudit } from "@/lib/audit";
+import { isKiosk } from "@/lib/public-kiosk";
+import { rateLimit, requestIp } from "@/lib/rate-limit";
 
 const METHODS = ["cash", "telebirr", "cbebirr", "chapa", "addispay", "santimpay", "bank", "pos", "credit_card", "debit_card"];
 const PLATE_RE = /^[A-Z0-9][A-Z0-9\s\-]{1,19}$/;
@@ -15,8 +17,11 @@ const PLATE_RE = /^[A-Z0-9][A-Z0-9\s\-]{1,19}$/;
  */
 export async function GET(req: Request) {
   return withAuth(req, async (user) => {
-    const perm = await requirePermission(user, "view", "parking_sessions");
-    if (!perm.allowed) return err("Permission denied", 403);
+    const kiosk = isKiosk(user);
+    if (!kiosk) {
+      const perm = await requirePermission(user, "view", "parking_sessions");
+      if (!perm.allowed) return err("Permission denied", 403);
+    }
 
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
@@ -99,6 +104,18 @@ export async function GET(req: Request) {
       rateId: row.rate_id,
     });
 
+    if (kiosk) {
+      row = {
+        ...row,
+        owner_name: null,
+        owner_phone: null,
+        owner_email: null,
+        customer_name: null,
+        visitor_name: null,
+        visitor_phone: null,
+      };
+    }
+
     return ok({
       session: row,
       pricing: priced,
@@ -121,10 +138,16 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   return withAuth(req, async (user) => {
-    const perm = await requirePermission(user, "edit", "parking_sessions");
-    if (!perm.allowed) return err("Permission denied", 403);
-    const payPerm = await requirePermission(user, "create", "parking_payments");
-    if (!payPerm.allowed) return err("Payment permission required", 403);
+    const kiosk = isKiosk(user);
+    if (kiosk && !rateLimit(`kiosk-exit:${requestIp(req)}`, 60, 60_000)) {
+      return err("Too many exit requests from this network. Please try again shortly.", 429);
+    }
+    if (!kiosk) {
+      const perm = await requirePermission(user, "edit", "parking_sessions");
+      if (!perm.allowed) return err("Permission denied", 403);
+      const payPerm = await requirePermission(user, "create", "parking_payments");
+      if (!payPerm.allowed) return err("Payment permission required", 403);
+    }
     if (!user.company_id) return badRequest("Company required");
 
     const body = await req.json().catch(() => null);
@@ -148,6 +171,15 @@ export async function POST(req: Request) {
     const discountErr = validateDiscount(discount);
     if (discountErr) return badRequest(discountErr);
     if (overrideAmount != null && (!isFinite(overrideAmount) || overrideAmount < 0)) return badRequest("Override amount must be a non-negative number");
+
+    if (kiosk) {
+      if (body.payment_method !== "addispay") {
+        return badRequest("The public kiosk only accepts AddisPay online payments");
+      }
+      if (discount) return forbidden("Discounts are not available at the public kiosk");
+      if (overrideAmount != null) return forbidden("Fee overrides are not available at the public kiosk");
+      if (lostTicket) return badRequest("Lost-ticket settlement is not available at the public kiosk");
+    }
 
     const client = await pool.connect();
     try {
@@ -211,6 +243,13 @@ export async function POST(req: Request) {
         },
       });
 
+      // Public kiosk users must settle paid stays through the verified
+      // AddisPay checkout; this endpoint may only close zero-fee stays.
+      if (kiosk && priced.amountDue > 0) {
+        await client.query("ROLLBACK");
+        return forbidden("Payment is required. Start the AddisPay checkout to settle this stay.");
+      }
+
       // Permission gates for money-affecting adjustments.
       if (discount && priced.discountAmount > 0) {
         const d = await can(user, "create", "parking_discounts");
@@ -228,10 +267,12 @@ export async function POST(req: Request) {
       }
 
       const exitTime = new Date();
-      const operatorShift = await client.query(
-        `SELECT id FROM parking_shifts WHERE company_id = $1 AND operator_id = $2 AND status = 'open' ORDER BY id DESC LIMIT 1`,
-        [user.company_id, user.id]
-      );
+      const shiftId = kiosk
+        ? null
+        : (await client.query(
+            `SELECT id FROM parking_shifts WHERE company_id = $1 AND operator_id = $2 AND status = 'open' ORDER BY id DESC LIMIT 1`,
+            [user.company_id, user.id]
+          )).rows[0]?.id ?? null;
       const receiptNumber = await nextNumber(user.company_id, "receipt", "RCP", { pad: 6 });
 
       // Insert payment (idempotent on (company_id, idempotency_key)).
@@ -244,7 +285,8 @@ export async function POST(req: Request) {
          RETURNING *`,
         [
           user.company_id, session.id, session.vehicle_id, priced.amountDue, priced.currency,
-          method, reference, receiptNumber, session.owner_name || null, notes, idempotencyKey, user.id,
+          method, reference, receiptNumber, session.owner_name || null, notes, idempotencyKey,
+          kiosk ? null : user.id,
         ]
       );
 
@@ -273,10 +315,10 @@ export async function POST(req: Request) {
             updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 RETURNING *`,
         [
-          session.id, exitTime, method === "cash" ? "manual" : "manual", user.id,
+          session.id, exitTime, "manual", kiosk ? null : user.id,
           priced.fee.durationMinutes, priced.tariffId, JSON.stringify({ ...priced.fee, gross: priced.grossAmount, discount: priced.discountAmount, due: priced.amountDue }),
           priced.grossAmount, priced.discountAmount, priced.amountDue,
-          operatorShift.rows[0]?.id || null,
+          shiftId,
         ]
       );
 
@@ -294,14 +336,15 @@ export async function POST(req: Request) {
         await client.query(
           `INSERT INTO parking_discounts (company_id, session_id, code, discount_type, value, computed_amount, reason, applied_by)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [user.company_id, session.id, discount.code || null, discount.discount_type, discount.value, priced.discountAmount, discount.reason || null, user.id]
+          [user.company_id, session.id, discount.code || null, discount.discount_type, discount.value, priced.discountAmount, discount.reason || null, kiosk ? null : user.id]
         );
       }
 
       await client.query("COMMIT");
 
       await logParkingAudit({
-        user,
+        user: kiosk ? null : user,
+        company_id: user.company_id,
         action: "EXIT",
         entity: "parking_session",
         entity_id: session.id,
@@ -316,7 +359,7 @@ export async function POST(req: Request) {
         session: upd.rows[0],
         pricing: priced,
         slot_released: !!session.slot_id,
-        operator: { id: user.id, name: user.email },
+        operator: kiosk ? null : { id: user.id, name: user.email },
       });
     } catch (e: any) {
       await client.query("ROLLBACK").catch(() => {});

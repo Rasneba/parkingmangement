@@ -1,6 +1,7 @@
 import pool from "@/lib/db";
 import { withAuth, ok, err, isSuperAdmin } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
+import { isKiosk } from "@/lib/public-kiosk";
 
 /**
  * GET /api/membership/parking/floor-map?site_id=N
@@ -9,8 +10,11 @@ import { requirePermission } from "@/lib/permissions";
  */
 export async function GET(req: Request) {
   return withAuth(req, async (user) => {
-    const perm = await requirePermission(user, "view", "parking_slots");
-    if (!perm.allowed) return err("Permission denied", 403);
+    const kiosk = isKiosk(user);
+    if (!kiosk) {
+      const perm = await requirePermission(user, "view", "parking_slots");
+      if (!perm.allowed) return err("Permission denied", 403);
+    }
 
     const { searchParams } = new URL(req.url);
     const siteId = Number(searchParams.get("site_id")) || null;
@@ -47,11 +51,17 @@ export async function GET(req: Request) {
         qp
       );
 
+      const slots = slotsRes.rows.map((s: any) =>
+        kiosk
+          ? { ...s, plate_number: null, ticket_number: null, owner_name: null }
+          : s
+      );
+
       const zones = zonesRes.rows.map((z: any) => ({
         ...z,
         available: Math.max(0, Number(z.capacity) - Number(z.occupied)),
         occupancyPct: Number(z.capacity) > 0 ? Math.round((Number(z.occupied) / Number(z.capacity)) * 100) : 0,
-        slots: slotsRes.rows.filter((s: any) => s.zone_id === z.id),
+        slots: slots.filter((s: any) => s.zone_id === z.id),
       }));
 
       return ok({

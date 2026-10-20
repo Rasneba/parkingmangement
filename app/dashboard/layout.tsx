@@ -10,6 +10,7 @@ import {
   Users, Map as MapIcon, Wrench,
 } from "lucide-react";
 import { getToken, getUser, clearSession, type SessionUser } from "@/lib/client";
+import { isPublicKioskPath } from "@/lib/public-kiosk";
 import { Badge, Dropdown, DropdownItem, IconButton, ToastProvider, cn, fmtDateTime } from "@/lib/ui";
 import { apiGet } from "@/lib/client";
 
@@ -345,7 +346,9 @@ function NotificationsPanel() {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const publicKiosk = isPublicKioskPath(pathname);
   const [ready, setReady] = useState(false);
+  const [publicMode, setPublicMode] = useState(false);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -357,9 +360,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     if (!getToken()) {
+      if (publicKiosk) {
+        setPublicMode(true);
+        const savedTheme = (localStorage.getItem("theme") as "light" | "dark") || "light";
+        setTheme(savedTheme);
+        document.documentElement.setAttribute("data-theme", savedTheme);
+        setReady(true);
+        return;
+      }
       router.replace("/login");
       return;
     }
+    setPublicMode(false);
     setUser(getUser());
     setCollapsed(localStorage.getItem("pk.sidebar-collapsed") === "1");
     const savedTheme = (localStorage.getItem("theme") as "light" | "dark") || "light";
@@ -375,7 +387,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     apiGet<Array<{ id: number; name: string }>>("/api/membership/parking/sites?limit=50")
       .then((rows) => setSites(rows.filter((r) => (r as any).is_active !== false)))
       .catch(() => {});
-  }, [router]);
+  }, [router, publicKiosk]);
 
   useEffect(() => setDrawer(false), [pathname]);
 
@@ -430,6 +442,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex min-h-screen items-center justify-center" suppressHydrationWarning>
         <div className="pk-spinner" suppressHydrationWarning />
       </div>
+    );
+  }
+
+  if (publicMode) {
+    return (
+      <ToastProvider>
+        <div className="flex min-h-screen flex-col" style={{ background: "var(--bg)" }}>
+          <header
+            className="flex items-center justify-between border-b px-4 py-3"
+            style={{ background: "var(--bg-elevated)", borderColor: "var(--card-border)" }}
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
+                style={{ background: "linear-gradient(135deg,#1d4ed8,#0e9bdb)" }}
+              >
+                <Car size={18} />
+              </span>
+              <div>
+                <div className="text-[14px] font-bold leading-tight text-[var(--text-primary)]">Parking Kiosk</div>
+                <div className="text-[11px] text-[var(--text-tertiary)]">Self-service entry &amp; exit</div>
+              </div>
+            </div>
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] px-3 py-2 text-[12px] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)]"
+            >
+              <ShieldCheck size={14} />
+              Staff login
+            </Link>
+          </header>
+          <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6">{children}</main>
+        </div>
+      </ToastProvider>
     );
   }
 

@@ -4,6 +4,8 @@ import { createOrder } from "@/lib/addispay";
 import { priceSession } from "@/lib/pricing";
 import { generateSequentialId } from "@/lib/id-generator";
 import { logParkingAudit } from "@/lib/audit";
+import { isKiosk } from "@/lib/public-kiosk";
+import { rateLimit, requestIp } from "@/lib/rate-limit";
 import pool from "@/lib/db";
 
 /**
@@ -14,8 +16,14 @@ import pool from "@/lib/db";
  */
 export async function POST(req: Request) {
   return withAuth(req, async (user) => {
-    const perm = await requirePermission(user, "create", "parking_payments");
-    if (!perm.allowed) return err("Permission denied", 403);
+    const kiosk = isKiosk(user);
+    if (kiosk && !rateLimit(`kiosk-pay:${requestIp(req)}`, 30, 60_000)) {
+      return err("Too many payment attempts from this network. Please try again shortly.", 429);
+    }
+    if (!kiosk) {
+      const perm = await requirePermission(user, "create", "parking_payments");
+      if (!perm.allowed) return err("Permission denied", 403);
+    }
     if (!user.company_id) return badRequest("Company required");
 
     const body = await req.json().catch(() => null);
@@ -95,12 +103,13 @@ export async function POST(req: Request) {
         txRef,
         `uuid:${result.data.uuid}`,
         session.owner_name || null,
-        user.id,
+        kiosk ? null : user.id,
       ]
     );
 
     await logParkingAudit({
-      user,
+      user: kiosk ? null : user,
+      company_id: user.company_id,
       action: "PAYMENT",
       entity: "parking_payment",
       entity_id: session.id,

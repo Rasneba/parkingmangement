@@ -1,5 +1,7 @@
 "use client";
 
+import { isPublicKioskPath } from "@/lib/public-kiosk";
+
 export interface SessionUser {
   id: number;
   name: string;
@@ -36,6 +38,31 @@ export function clearSession() {
   localStorage.removeItem("user");
 }
 
+let kioskToken: string | null = null;
+let kioskTokenPromise: Promise<string | null> | null = null;
+
+async function getKioskToken(): Promise<string | null> {
+  if (kioskToken) return kioskToken;
+  if (!kioskTokenPromise) {
+    kioskTokenPromise = fetch("/api/auth/kiosk", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = (await res.json()) as { token?: string };
+        kioskToken = data.token ?? null;
+        return kioskToken;
+      })
+      .catch(() => null)
+      .finally(() => {
+        kioskTokenPromise = null;
+      });
+  }
+  return kioskTokenPromise;
+}
+
+function onPublicKioskPath(): boolean {
+  return typeof window !== "undefined" && isPublicKioskPath(window.location.pathname);
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -44,15 +71,31 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T = any>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
+async function doFetch(path: string, options: RequestInit, token: string | null): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(path, { ...options, headers });
+}
 
-  const res = await fetch(path, { ...options, headers });
+export async function apiFetch<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+  const publicPath = onPublicKioskPath();
+  let token = getToken();
+  if (!token && publicPath) token = await getKioskToken();
+
+  let res = await doFetch(path, options, token);
+
+  // A kiosk tab can stay open for days. If its token expires (or a stale
+  // staff token is present), discard it and retry once with a fresh token.
+  if (res.status === 401 && publicPath) {
+    clearSession();
+    kioskToken = null;
+    token = await getKioskToken();
+    if (token) res = await doFetch(path, options, token);
+  }
+
   const text = await res.text();
   let data: any = null;
   if (text) {
@@ -63,7 +106,7 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
     }
   }
   if (!res.ok) {
-    if (res.status === 401 && typeof window !== "undefined") {
+    if (res.status === 401 && typeof window !== "undefined" && !publicPath) {
       clearSession();
       window.location.replace("/login");
     }

@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { NextResponse } from "next/server";
+import { KIOSK_ROLE, isKioskApiRequestAllowed } from "@/lib/public-kiosk";
 
 export interface AuthUser {
   id: number;
@@ -38,7 +39,16 @@ export async function verifyToken(token: string): Promise<AuthUser | null> {
 export async function getAuthUser(req: Request): Promise<AuthUser | null> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-  return await verifyToken(authHeader.slice(7));
+  const user = await verifyToken(authHeader.slice(7));
+  if (!user) return null;
+
+  // Public kiosk tokens are long-lived and unauthenticated to obtain, so they
+  // may only reach the handful of endpoints the kiosk UI actually needs.
+  if (user.role === KIOSK_ROLE && !isKioskApiRequestAllowed(req.method, new URL(req.url).pathname)) {
+    return null;
+  }
+
+  return user;
 }
 
 export function unauthorized() {
