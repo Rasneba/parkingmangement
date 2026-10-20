@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Clock, Download, Eye, RefreshCw } from "lucide-react";
 import {
@@ -42,6 +42,7 @@ export default function SessionsPage() {
 
 function SessionsBrowser() {
   const params = useSearchParams();
+  const router = useRouter();
   const [q, setQ] = useState(params.get("q") || "");
   const [debouncedQ, setDebouncedQ] = useState(q);
   const [status, setStatus] = useState(params.get("status") || "");
@@ -178,7 +179,7 @@ function SessionsBrowser() {
                 {r.status === "active" && (
                   <DropdownItem
                     icon={<Clock size={14} />}
-                    onClick={() => { window.location.href = `/dashboard/membership/parking/exit?mode=cashier&q=${encodeURIComponent(r.ticket_number)}`; }}
+                    onClick={() => { router.push(`/dashboard/membership/parking/exit?mode=cashier&q=${encodeURIComponent(r.ticket_number)}`); }}
                   >
                     Process exit
                   </DropdownItem>

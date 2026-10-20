@@ -65,7 +65,7 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
       clearSession();
-      window.location.href = "/login";
+      window.location.replace("/login");
     }
     throw new ApiError(data?.error || `Request failed (${res.status})`, res.status);
   }
