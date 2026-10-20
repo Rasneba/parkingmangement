@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { GemPage, GemHeader, GemCard, GemCardBare, GemBtn, GemTable, GemBadge, GemInput, GemSelect } from "@/lib/gem-ui";
-import { QrCode, Plus, X, Save } from "lucide-react";
+import { QrCode, Plus, X } from "lucide-react";
 
 export default function ParkingQrTicketsPage() {
   const [tickets, setTickets] = useState<any[]>([]);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { withAuth, ok, created, err, notFound, badRequest, deleted } from "@/lib/api-utils";
+import { withAuth, ok, created, err, badRequest } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
 import QRCode from "qrcode";
 

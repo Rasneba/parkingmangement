@@ -1,6 +1,5 @@
-import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { withAuth, ok, err, badRequest } from "@/lib/api-utils";
+import { withAuth, ok, err, badRequest, isSuperAdmin } from "@/lib/api-utils";
 import { logAccess, daysBetween } from "@/lib/rfid";
 
 export async function POST(req: Request) {
@@ -10,7 +9,14 @@ export async function POST(req: Request) {
       const { subscription_id, company_id } = body;
       if (!subscription_id) return badRequest("subscription_id is required");
 
-      const cid = company_id || user.company_id;
+      // Only a super admin may target another company; everyone else is pinned
+      // to their own company regardless of what the request body says.
+      const requested = Number(company_id);
+      const cid =
+        isSuperAdmin(user) && Number.isFinite(requested) && requested > 0
+          ? requested
+          : user.company_id;
+      if (!cid) return badRequest("Company required");
 
       const subRes = await pool.query(
         `SELECT ps.*,

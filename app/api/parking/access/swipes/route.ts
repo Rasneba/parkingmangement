@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
+/**
+ * Controller/bridge endpoint for raw RFID swipes.
+ *
+ * When PARKING_RELAY_KEY is configured the caller must send it as `x-relay-key`.
+ * Keep the key unset only in trusted local setups; production should always set it.
+ */
 export async function POST(req: Request) {
+  const expectedKey = process.env.PARKING_RELAY_KEY;
+  if (expectedKey && req.headers.get("x-relay-key") !== expectedKey) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
-    const { card_uid, card_label, member_id, member_name, direction, event_type, controller_id, granted, reason, message, days_remaining, plan_name, subscription_id } = body;
+    const { card_uid, member_id, member_name, direction, event_type, controller_id, granted, reason, message, days_remaining, plan_name, subscription_id } = body;
+    const companyId = Number(body.company_id);
 
     const result = await pool.query(
       `INSERT INTO rfid_access_logs
@@ -12,7 +24,7 @@ export async function POST(req: Request) {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id`,
       [
-        body.company_id || null,
+        Number.isFinite(companyId) && companyId > 0 ? companyId : null,
         card_uid || "",
         member_id || null,
         member_name || null,
@@ -31,6 +43,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, id: result.rows[0]?.id });
   } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    console.error("parking swipe log failed:", error);
+    return NextResponse.json({ ok: false, error: "Failed to record swipe" }, { status: 500 });
   }
 }

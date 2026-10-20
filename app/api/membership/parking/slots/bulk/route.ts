@@ -1,5 +1,5 @@
 import pool from "@/lib/db";
-import { withAuth, ok, created, err, badRequest, conflict } from "@/lib/api-utils";
+import { withAuth, created, err, badRequest, conflict } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
 import { logParkingAudit } from "@/lib/audit";
 

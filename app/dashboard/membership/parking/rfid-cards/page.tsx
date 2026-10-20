@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { GemPage, GemHeader, GemCard, GemCardBare, GemBtn, GemBtnOutline, GemTable, GemBadge, GemInput, GemSelect } from "@/lib/gem-ui";
-import { CreditCard, Plus, X, Search, Trash2, Save } from "lucide-react";
+import { GemPage, GemHeader, GemCard, GemCardBare, GemBtn, GemTable, GemBadge, GemInput, GemSelect } from "@/lib/gem-ui";
+import { CreditCard, Plus, X, Trash2, Save } from "lucide-react";
 
 export default function RfidCardsPage() {
   const [cards, setCards] = useState<any[]>([]);

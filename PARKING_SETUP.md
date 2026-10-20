@@ -50,18 +50,21 @@ Copy `.env.example` to `.env` and set the values:
 | Variable | Description |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string for the shared ERP database. |
-| `JWT_SECRET` | Must match the ERP secret so tokens are interchangeable (`genius-hrms-secret-key-2026`). |
+| `JWT_SECRET` | **Required in production.** Must match the ERP secret so tokens are interchangeable. There is no production fallback: a missing value fails closed. |
 | `NEXT_PUBLIC_APP_URL` | Public URL of this app (e.g. `http://localhost:3001`). |
 | `NODE_ENV` | `development` or `production`. |
 | `COMPANY_ID` | Optional. Company used by the seed script; defaults to the first company. |
 | `CHAPA_SECRET_KEY` | Optional. Enables the Chapa payment gateway. |
 | `ADDISPAY_SECRET_KEY` / `ADDISPAY_API_URL` | Optional. Enables the AddisPay gateway. |
+| `PARKING_CONTROLLER_IP` / `PARKING_CONTROLLER_USER` / `PARKING_CONTROLLER_PASSWORD` | Access-controller credentials. Required for `/api/parking/access`; never commit real values. |
+| `PARKING_RELAY_KEY` | Optional but recommended. When set, `/api/parking/access/swipes` requires the `x-relay-key` header. |
 
-> **Access controller.** The relay/open-door helper in `lib/access-control.ts` and
-> `app/api/parking/access/route.ts` talks to a ZKTeco-style controller. The default
-> address is `192.168.0.68` (`/cdor.cgi?open=1&door=0`); each gate can override it via
-> its `ip_address` column. The bridge is expected to run on the same LAN as the
-> controller.
+> **Access controller.** `app/api/parking/access/route.ts` talks to a ZKTeco-style
+> controller and now requires an authenticated user with `parking_devices` view
+> permission. Its address and credentials come only from the environment variables
+> above (`/cdor.cgi?open=1&door=0`); each gate can override the address via its
+> `ip_address` column. The bridge is expected to run on the same LAN as the controller.
+> Rotate any controller credentials that were previously committed to source control.
 
 ## 3. Database migrations
 

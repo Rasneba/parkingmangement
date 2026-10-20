@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { GemPage, GemHeader, GemCardBare } from "@/lib/gem-ui";
-import { ShieldCheck, CreditCard, AlertTriangle, XOctagon, Activity, DoorOpen, ArrowRight, ArrowLeft, CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, SlidersHorizontal, Monitor } from "lucide-react";
+import { ShieldCheck, CreditCard, AlertTriangle, XOctagon, Activity, DoorOpen, ArrowRight, ArrowLeft, CheckCircle, XCircle, Wifi, WifiOff, RefreshCw, SlidersHorizontal } from "lucide-react";
 
 function MiniSpark({ value, max, color }: { value: number; max: number; color: string }) {
   const bars = 5;
@@ -20,14 +20,12 @@ function MiniSpark({ value, max, color }: { value: number; max: number; color: s
 
 export default function AccessControlPage() {
   const [cards, setCards] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [activities, setActivities] = useState<any[]>([]);
   const [doorMsg, setDoorMsg] = useState("");
   const lastSeenRef = useRef<string>("");
   const [gates, setGates] = useState<any[]>([]);
   const [selectedGateId, setSelectedGateId] = useState<string>("");
-  const [selectedGate, setSelectedGate] = useState<any>(null);
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const pollRef = useRef<any>(null);
   const pingRef = useRef<any>(null);
@@ -47,14 +45,13 @@ export default function AccessControlPage() {
       const stored = localStorage.getItem("selectedGateId");
       const found = stored ? list.find((g: any) => g.id == stored) : null;
       const initial = found || list.find((g: any) => g.is_rfid_enabled) || list[0];
-      if (initial) { setSelectedGateId(String(initial.id)); setSelectedGate(initial); localStorage.setItem("selectedGateId", String(initial.id)); }
+      if (initial) { setSelectedGateId(String(initial.id)); localStorage.setItem("selectedGateId", String(initial.id)); }
     } catch {}
   };
 
   const handleGateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
     setSelectedGateId(id);
-    setSelectedGate(gates.find(g => g.id == id) || null);
     localStorage.setItem("selectedGateId", id);
   };
 
@@ -76,7 +73,7 @@ export default function AccessControlPage() {
       });
       setCards(enriched);
     } catch {}
-    setLoading(false);
+
   };
 
   const checkRelay = useCallback(async () => {
@@ -170,7 +167,7 @@ export default function AccessControlPage() {
             <button onClick={openDoor} className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-all active:scale-[0.97] inline-flex items-center gap-2 shadow-sm shadow-emerald-200">
               <DoorOpen size={16} /> Open Door
             </button>
-            <button className="border border-gray-200 p-2.5 rounded-xl hover:bg-gray-50 transition-all active:scale-95" onClick={() => { setLoading(true); loadCards(); checkRelay(); lastSeenRef.current = ""; pollLogs(); }}>
+            <button className="border border-gray-200 p-2.5 rounded-xl hover:bg-gray-50 transition-all active:scale-95" onClick={() => { loadCards(); checkRelay(); lastSeenRef.current = ""; pollLogs(); }}>
               <RefreshCw size={16} className="text-gray-600" />
             </button>
           </div>

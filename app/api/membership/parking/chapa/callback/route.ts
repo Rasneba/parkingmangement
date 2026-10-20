@@ -54,28 +54,41 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { tx_ref, status } = body;
+    const txRef = typeof body?.tx_ref === "string" ? body.tx_ref : "";
+    if (!txRef) {
+      return NextResponse.json({ error: "Missing tx_ref" }, { status: 400 });
+    }
 
-    if (status === "success" || status === "completed") {
-      const payRes = await pool.query(
-        `UPDATE parking_payments SET notes = 'Chapa webhook: completed' WHERE reference = $1 RETURNING session_id, amount`,
-        [tx_ref]
+    // Never trust the webhook body: confirm the transaction with Chapa first.
+    const result = await verifyPayment(txRef);
+    const txData = result.data as any;
+    const verified =
+      result.status === "success" &&
+      (txData?.status === "completed" || txData?.status === "success");
+
+    if (!verified) {
+      return NextResponse.json({ received: true, verified: false });
+    }
+
+    const payRes = await pool.query(
+      `UPDATE parking_payments SET notes = 'Chapa payment completed via callback' WHERE reference = $1 RETURNING session_id, amount`,
+      [txRef]
+    );
+    if (payRes.rows.length > 0) {
+      const { session_id, amount } = payRes.rows[0];
+      await pool.query(
+        `UPDATE parking_sessions SET paid = true, amount = $1, status = 'completed' WHERE id = $2`,
+        [amount, session_id]
       );
-      if (payRes.rows.length > 0) {
-        const { session_id, amount } = payRes.rows[0];
-        await pool.query(
-          `UPDATE parking_sessions SET paid = true, amount = $1, status = 'completed' WHERE id = $2`,
-          [amount, session_id]
-        );
-        const slotRes = await pool.query("SELECT slot_id FROM parking_sessions WHERE id = $1", [session_id]);
-        if (slotRes.rows[0]?.slot_id) {
-          await pool.query("UPDATE parking_slots SET status = 'available', current_session_id = NULL WHERE id = $1", [slotRes.rows[0].slot_id]);
-        }
+      const slotRes = await pool.query("SELECT slot_id FROM parking_sessions WHERE id = $1", [session_id]);
+      if (slotRes.rows[0]?.slot_id) {
+        await pool.query("UPDATE parking_slots SET status = 'available', current_session_id = NULL WHERE id = $1", [slotRes.rows[0].slot_id]);
       }
     }
 
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, verified: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("chapa callback failed:", err);
+    return NextResponse.json({ error: "Callback processing failed" }, { status: 500 });
   }
 }

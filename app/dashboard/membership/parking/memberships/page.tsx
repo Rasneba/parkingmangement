@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarCheck, CreditCard, Plus, RefreshCw, XCircle } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
-  Segmented, Select, Skeleton, Switch, cn, fmtDate, fmtInt, fmtMoney, useToast, type Column,
+  Badge, Button, Card, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
+  Segmented, Select, Skeleton, Switch, fmtDate, fmtInt, fmtMoney, useToast, type Column,
 } from "@/lib/ui";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/client";
 
@@ -318,7 +318,6 @@ function SubscriptionDialog({ sub, plans, onClose, onSaved }: { sub: Subscriptio
     }
   }, [sub]);
   if (!sub) return null;
-  const isNew = sub.id === 0;
 
   const applyPlan = (planId: string) => {
     const p = plans.find((x) => String(x.id) === planId);

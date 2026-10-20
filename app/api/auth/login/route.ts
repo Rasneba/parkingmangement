@@ -103,6 +103,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("parking login failed:", e);
+    return NextResponse.json({ error: "Login failed. Please try again." }, { status: 500 });
   }
 }

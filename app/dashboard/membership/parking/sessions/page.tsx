@@ -5,8 +5,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Clock, Download, Eye, RefreshCw } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, DataTable, DateRangeInput, Dialog, Dropdown, DropdownItem,
-  EmptyState, Pagination, Select, Input, cn, fmtDateTime, fmtDuration, fmtMoney, relativeTime, type Column,
+  Badge, Button, Card, DataTable, DateRangeInput, Dialog, Dropdown, DropdownItem,
+  EmptyState, Pagination, Select, Input, fmtDateTime, fmtDuration, fmtMoney, relativeTime, type Column,
 } from "@/lib/ui";
 import { apiGet } from "@/lib/client";
 
@@ -178,7 +178,7 @@ function SessionsBrowser() {
                 {r.status === "active" && (
                   <DropdownItem
                     icon={<Clock size={14} />}
-                    onClick={() => { window.location.href = `/dashboard/membership/parking/exit?q=${encodeURIComponent(r.ticket_number)}`; }}
+                    onClick={() => { window.location.href = `/dashboard/membership/parking/exit?mode=cashier&q=${encodeURIComponent(r.ticket_number)}`; }}
                   >
                     Process exit
                   </DropdownItem>
@@ -305,7 +305,7 @@ function SessionsBrowser() {
           detail?.status === "active" ? (
             <>
               <Button variant="outline" size="sm" onClick={() => setDetail(null)}>Close</Button>
-              <Link href={`/dashboard/membership/parking/exit?q=${encodeURIComponent(detail.ticket_number)}`} onClick={() => setDetail(null)}>
+              <Link href={`/dashboard/membership/parking/exit?mode=cashier&q=${encodeURIComponent(detail.ticket_number)}`} onClick={() => setDetail(null)}>
                 <Button variant="success" size="sm">Process exit</Button>
               </Link>
             </>

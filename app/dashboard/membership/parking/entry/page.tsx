@@ -6,7 +6,7 @@ import {
   ArrowRightCircle, Car, Check, CheckCircle2, ChevronDown, Download, Printer, RotateCcw, Share2, Zap,
 } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, EmptyState, Field, Input, Select, Skeleton, Textarea,
+  Badge, Button, Card, CardHeader, EmptyState, Field, Select, Skeleton, Textarea,
   cn, fmtDateTime, useToast,
 } from "@/lib/ui";
 import { apiGet, apiPost } from "@/lib/client";
@@ -104,7 +104,6 @@ function EntryForm() {
         setGates(g);
       })
       .catch(() => toast.error("Could not load entry form data", "Check your connection and retry."));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSlots]);
 
   // Prefill from the live map ("Start entry here")
@@ -546,7 +545,7 @@ function TicketDialog({ result, onClose }: { result: EntryResult; onClose: () =>
             </p>
           </div>
           <div className="flex flex-col items-center px-6 py-5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+
             <img src={result.ticket.qr_data_url} alt={`QR code for ticket ${result.ticket.ticket_number}`} className="h-44 w-44 rounded-xl border border-[var(--card-border)] bg-white p-2" />
             <p className="pk-num mt-3 text-lg font-bold tracking-wide text-[var(--text-primary)]">{result.ticket.ticket_number}</p>
             <dl className="mt-3 w-full space-y-2 text-[13px]">

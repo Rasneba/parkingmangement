@@ -1,8 +1,8 @@
 "use client";
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { GemPage, GemHeader, GemCard, GemCardBare, GemBtn, GemBtnOutline, GemBadge, GemInput, GemSelect, GemAlert } from "@/lib/gem-ui";
-import { Monitor, Search, Phone, QrCode, Camera, ShoppingCart, CheckCircle, X } from "lucide-react";
+import { GemPage, GemHeader, GemCard, GemBtn, GemBtnOutline, GemBadge, GemInput, GemSelect, GemAlert } from "@/lib/gem-ui";
+import { Search, Phone, QrCode, Camera, ShoppingCart, X } from "lucide-react";
 
 export default function ParkingPosPage() {
   return (
@@ -21,7 +21,6 @@ function ParkingPosContent() {
   const [rates, setRates] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [cameras, setCameras] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [plateSearch, setPlateSearch] = useState("");
   const [phoneSearch, setPhoneSearch] = useState("");
@@ -50,7 +49,6 @@ function ParkingPosContent() {
 
   const load = async () => {
     if (!token) return;
-    setLoading(true);
     try {
       const [activeRes, payRes, ratesRes, zonesRes, camRes, compRes] = await Promise.all([
         fetch("/api/membership/parking/sessions?status=active,pending_payment", { headers: { Authorization: `Bearer ${token}` } }),
@@ -77,7 +75,6 @@ function ParkingPosContent() {
         if (found) selectSession(found);
       }
     } catch {}
-    setLoading(false);
   };
 
   useEffect(() => { load(); }, [preSessionId]);

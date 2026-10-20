@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useMemo, useRef } from "react";
-import { GemPage, GemHeader, GemCard, GemCardBare, GemKpi, GemBtn, GemBtnOutline, GemBadge, GemSelect, GemInput, GemAlert } from "@/lib/gem-ui";
+import { GemPage, GemHeader, GemCard, GemCardBare, GemKpi, GemBtn, GemBtnOutline, GemBadge, GemSelect, GemInput } from "@/lib/gem-ui";
 import { ReportFilters, MembershipReportTable } from "@/components";
-import { CalendarCheck, Plus, X, Download, Printer, Save, CreditCard, Users, TrendingUp, Clock, Edit3, Snowflake, BarChart3, Table2, QrCode } from "lucide-react";
+import { CalendarCheck, Plus, X, Download, Printer, Save, Users, TrendingUp, Clock, Edit3, Snowflake, BarChart3, Table2, QrCode } from "lucide-react";
 
 export default function ParkingSubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<any[]>([]);

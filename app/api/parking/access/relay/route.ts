@@ -36,7 +36,7 @@ export async function GET(req: Request) {
         [user.company_id]
       );
       return ok({ ok: true, relay_online: true, pending: parseInt(r.rows[0].pending), recent: recentDone.rows });
-    } catch (e: any) {
+    } catch {
       return ok({ ok: true, relay_online: false, pending: 0, recent: [] });
     }
   });

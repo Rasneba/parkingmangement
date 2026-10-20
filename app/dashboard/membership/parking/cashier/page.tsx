@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Banknote, CheckCircle2, Printer, RefreshCw,
-  Receipt, XCircle,
+  ArrowDownToLine, ArrowUpFromLine, Banknote, CheckCircle2, Printer, RefreshCw, Receipt,
 } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
-  Segmented, Select, Skeleton, Textarea, cn, fmtDateTime, fmtInt, fmtMoney, relativeTime, useToast,
+  Segmented, Select, Skeleton, Textarea, fmtDateTime, fmtInt, fmtMoney, relativeTime, useToast,
   type Column,
 } from "@/lib/ui";
 import { apiGet, apiPost, apiPut } from "@/lib/client";

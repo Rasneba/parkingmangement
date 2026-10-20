@@ -27,10 +27,6 @@ export async function GET(req: Request) {
     const companyId: number | null = isSuperAdmin(user) ? null : (user.company_id ?? null);
     const cpFor = (alias: string) => `(${alias}.company_id = $1 OR $1::int IS NULL)`;
     const qp = (...rest: unknown[]) => [companyId, ...rest];
-    const P = (arr: unknown[], v: unknown) => {
-      arr.push(v);
-      return `$${arr.length}`;
-    };
 
     const zoneJoinSite = zoneId
       ? ` JOIN parking_slots sl ON sl.id = ps.slot_id AND sl.zone_id = ${zoneId} `

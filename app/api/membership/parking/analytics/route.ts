@@ -31,10 +31,6 @@ export async function GET(req: Request) {
     const cpFor = (alias: string) => `(${alias}.company_id = $1 OR $1::int IS NULL)`;
     /** Fresh per-query param array: [companyId, ...rest]. */
     const qp = (...rest: unknown[]) => [companyId, ...rest];
-    const P = (arr: unknown[], v: unknown) => {
-      arr.push(v);
-      return `$${arr.length}`;
-    };
 
     const siteZones = siteId ? `(SELECT id FROM parking_zones WHERE site_id = ${siteId})` : null;
     const sesSite = siteZones ? ` AND ps.slot_id IN (SELECT s.id FROM parking_slots s WHERE s.zone_id IN ${siteZones})` : "";

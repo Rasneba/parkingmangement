@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { withAuth, ok, created, err, badRequest, notFound } from "@/lib/api-utils";
+import { withAuth, created, err, badRequest, notFound } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
 import { generateSequentialId } from "@/lib/id-generator";
 import { logParkingAudit } from "@/lib/audit";

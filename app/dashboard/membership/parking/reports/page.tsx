@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { BarChart3, Download, Printer, RefreshCw } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, DataTable, DateRangeInput, EmptyState, Input, Select,
+  Badge, Button, Card, DataTable, DateRangeInput, EmptyState, Select,
   Skeleton, cn, fmtDuration, fmtInt, fmtMoney, type Column,
 } from "@/lib/ui";
 import { apiGet } from "@/lib/client";

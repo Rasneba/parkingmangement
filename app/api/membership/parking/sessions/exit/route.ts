@@ -1,9 +1,8 @@
 import pool from "@/lib/db";
 import { withAuth, ok, created, err, badRequest, conflict, forbidden, notFound } from "@/lib/api-utils";
 import { requirePermission, can } from "@/lib/permissions";
-import { nextNumber, dailyPeriodKey } from "@/lib/id-generator";
+import { nextNumber } from "@/lib/id-generator";
 import { priceSession, validateDiscount } from "@/lib/pricing";
-import { round2, toMinor, fromMinor } from "@/lib/money";
 import { logParkingAudit } from "@/lib/audit";
 
 const METHODS = ["cash", "telebirr", "cbebirr", "chapa", "addispay", "santimpay", "bank", "pos", "credit_card", "debit_card"];

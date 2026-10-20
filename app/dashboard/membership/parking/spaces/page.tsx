@@ -5,8 +5,8 @@ import {
   Building2, Grid3x3, Layers, MapPin, Pencil, Plus, Trash2, Wrench,
 } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
-  Progress, Segmented, Select, Switch, cn, fmtInt, useToast, type Column,
+  Badge, Button, Card, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input,
+  Progress, Segmented, Select, Switch, cn, fmtInt, useToast,
 } from "@/lib/ui";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/client";
 
@@ -55,7 +55,6 @@ export default function SpacesPage() {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -384,7 +383,6 @@ function BulkDialog({ open, zones, onClose, onDone }: { open: boolean; zones: Zo
       const z = zones[0];
       setForm((f) => ({ ...f, zone_id: String(z.id), prefix: z.code.toUpperCase() }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, zones]);
 
   const generate = async () => {

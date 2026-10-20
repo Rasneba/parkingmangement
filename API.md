@@ -126,14 +126,14 @@ and whether access is granted; optionally opens the gate via the controller.
 
 | Method | Endpoint | Notes |
 | --- | --- | --- |
-| `GET` | `/api/parking/access` | Controller status / relay helper (reads controller events). |
+| `GET` | `/api/parking/access` | Controller status / relay helper (reads controller events). Requires auth + `parking_devices` view. |
 | `GET` | `/api/parking/access/live` | Live entry feed (recent sessions/logs). |
 | `GET` | `/api/parking/access/logs` | Access log stream. |
 | `GET` | `/api/parking/access/qr-live` | Live QR-lookup feed. |
 | `POST` | `/api/parking/access/qr-lookup` | Resolves a QR payload to a session/subscription. |
 | `POST` | `/api/parking/access/relay` | Queue/trigger a relay command (open door). |
 | `GET` | `/api/parking/access/relay` | Poll pending relay commands (for the local bridge). |
-| `POST` | `/api/parking/access/swipes` | Controller posts raw RFID swipes → `rfid_access_logs`. |
+| `POST` | `/api/parking/access/swipes` | Controller posts raw RFID swipes → `rfid_access_logs`. Send `x-relay-key` when `PARKING_RELAY_KEY` is set. |
 
 ---
 

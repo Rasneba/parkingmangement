@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { withAuth, ok, isAdmin } from "@/lib/api-utils";
 

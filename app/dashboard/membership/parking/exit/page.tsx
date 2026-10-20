@@ -4,14 +4,14 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  AlertTriangle, BadgeCheck, Banknote, CheckCircle2, Clock, DoorOpen, Grid3x3, Printer, QrCode,
+  AlertTriangle, Banknote, CheckCircle2, Clock, DoorOpen, Grid3x3, Printer, QrCode,
   ScanLine, Search, Ticket, X,
 } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Segmented, Skeleton, Switch,
-  cn, fmtDateTime, fmtDuration, fmtMoney, relativeTime, useToast,
+  fmtDateTime, fmtDuration, fmtMoney, relativeTime, useToast,
 } from "@/lib/ui";
-import { apiFetch, apiGet, apiPost } from "@/lib/client";
+import { apiGet, apiPost } from "@/lib/client";
 
 const METHODS = [
   { value: "cash", label: "Cash" },
@@ -317,7 +317,6 @@ function ExitStation() {
     } else if (flag && flag !== "pending") {
       toast.error("AddisPay", `Payment ${flag}`);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
   // Keep mode + method in sync with the ?mode= query param (sidebar links).
@@ -641,7 +640,7 @@ function ExitStation() {
                 </div>
               )}
 
-              {(mode === "cashier" || (mode === "self" && method !== "addispay")) && (
+              {(pricing.covered || mode === "cashier" || (mode === "self" && method !== "addispay")) && (
                 <Button
                   size="lg"
                   variant="success"
@@ -650,7 +649,11 @@ function ExitStation() {
                   onClick={settle}
                   icon={<DoorOpen size={17} />}
                 >
-                  {mode === "self" ? "Confirm payment & release space" : "Confirm exit & release space"}
+                  {pricing.covered
+                    ? "Confirm exit & release space"
+                    : mode === "self"
+                      ? "Confirm payment & release space"
+                      : "Confirm exit & release space"}
                 </Button>
               )}
               <p className="text-center text-[11px] text-[var(--text-tertiary)]">
@@ -699,7 +702,6 @@ function ExitStation() {
         >
           <div className="flex flex-col items-center gap-4">
             {adpQr ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img src={adpQr} alt="AddisPay checkout QR" className="h-56 w-56 rounded-xl border border-[var(--card-border)] bg-white p-2" />
             ) : (
               <div className="flex h-56 w-56 items-center justify-center rounded-xl border border-dashed border-[var(--card-border)] text-[var(--text-tertiary)]">

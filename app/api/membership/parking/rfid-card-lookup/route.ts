@@ -1,6 +1,4 @@
-import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { openDoor } from "@/lib/access-control";
 import { withAuth, ok, err, badRequest } from "@/lib/api-utils";
 import { lookupCard, logAccess, updateCardLastUsed, daysBetween } from "@/lib/rfid";
 
@@ -101,7 +99,8 @@ export async function POST(req: Request) {
             [gate_id, user.company_id]
           )).rows[0]
         : null;
-      const ip = gate?.ip_address || "192.168.0.68";
+      const ip = gate?.ip_address || (process.env.PARKING_CONTROLLER_IP || "").trim();
+      if (!ip) return err("No gate controller configured", 503);
       const port = gate?.port || 80;
       const doorUrl = `http://${ip}:${port}/cdor.cgi?open=1&door=0`;
 

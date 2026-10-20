@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import {
   Badge, Button, Card, CardHeader, DataTable, DateRangeInput, Dialog, EmptyState, Progress,
-  Segmented, Select, Skeleton, TrendPill, cn, fmtDateTime, fmtDuration, fmtInt, fmtMoney, relativeTime,
+  Select, Skeleton, TrendPill, cn, fmtDateTime, fmtDuration, fmtInt, fmtMoney, relativeTime,
 } from "@/lib/ui";
 import { apiGet } from "@/lib/client";
 import { BarsChart, DonutChart, HBarChart, LineAreaChart } from "@/components/charts";
@@ -194,7 +194,7 @@ export default function ParkingDashboard() {
           <Link href="/dashboard/membership/parking/entry">
             <Button size="md" icon={<ArrowRightCircle size={15} />}>Vehicle Entry</Button>
           </Link>
-          <Link href="/dashboard/membership/parking/exit">
+          <Link href="/dashboard/membership/parking/exit?mode=cashier">
             <Button size="md" variant="success" icon={<DoorOpen size={15} />}>Vehicle Exit</Button>
           </Link>
         </div>
@@ -579,7 +579,7 @@ export default function ParkingDashboard() {
               <Link href={`/dashboard/membership/parking/sessions?q=${encodeURIComponent(selectedSlot.ticket_number)}`} onClick={() => setSelectedSlot(null)}>
                 <Button variant="outline" size="sm">View session</Button>
               </Link>
-              <Link href={`/dashboard/membership/parking/exit?q=${encodeURIComponent(selectedSlot.plate_number || selectedSlot.ticket_number || "")}`} onClick={() => setSelectedSlot(null)}>
+              <Link href={`/dashboard/membership/parking/exit?mode=cashier&q=${encodeURIComponent(selectedSlot.plate_number || selectedSlot.ticket_number || "")}`} onClick={() => setSelectedSlot(null)}>
                 <Button variant="success" size="sm">Process exit</Button>
               </Link>
             </>

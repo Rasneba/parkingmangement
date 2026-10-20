@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, RefreshCw, ShieldCheck } from "lucide-react";
 import {
-  Badge, Button, Card, CardHeader, DataTable, DateRangeInput, Dialog, EmptyState, Pagination,
+  Badge, Button, Card, DataTable, DateRangeInput, Dialog, EmptyState, Pagination,
   Select, fmtDateTime, relativeTime, type Column,
 } from "@/lib/ui";
 import { apiGet } from "@/lib/client";

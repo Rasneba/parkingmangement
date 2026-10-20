@@ -1,6 +1,6 @@
 import net from "node:net";
 import pool from "@/lib/db";
-import { withAuth, ok, err, badRequest, notFound } from "@/lib/api-utils";
+import { withAuth, ok, err, notFound } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
 import { logParkingAudit } from "@/lib/audit";
 

@@ -1,5 +1,5 @@
 import pool from "@/lib/db";
-import { withAuth, ok, created, err, badRequest, conflict, forbidden } from "@/lib/api-utils";
+import { withAuth, created, err, badRequest, conflict, forbidden } from "@/lib/api-utils";
 import { requirePermission } from "@/lib/permissions";
 import { nextNumber, dailyPeriodKey } from "@/lib/id-generator";
 import { qrDataUrl, buildTicketPayload } from "@/lib/qr";
@@ -31,6 +31,10 @@ export async function POST(req: Request) {
     const zoneId = body.zone_id ? Number(body.zone_id) : null;
     const slotId = body.slot_id ? Number(body.slot_id) : null;
     const entryGateId = body.entry_gate_id ? Number(body.entry_gate_id) : null;
+    if (customerId !== null && !Number.isFinite(customerId)) return badRequest("Invalid customer");
+    if (zoneId !== null && !Number.isFinite(zoneId)) return badRequest("Invalid zone");
+    if (slotId !== null && !Number.isFinite(slotId)) return badRequest("Invalid space");
+    if (entryGateId !== null && !Number.isFinite(entryGateId)) return badRequest("Invalid gate");
     const entryMethod = ["manual", "anpr", "qr", "rfid", "nfc"].includes(body.entry_method) ? body.entry_method : "manual";
     const entrySource = ["web", "kiosk", "bridge", "mobile", "api"].includes(body.entry_source) ? body.entry_source : "web";
     const notes = body.notes ? String(body.notes).slice(0, 500) : null;
@@ -42,6 +46,28 @@ export async function POST(req: Request) {
     let effectivePlate = plate || `V-${Date.now()}`;
     try {
       await client.query("BEGIN");
+
+      // Reject references that belong to another company.
+      if (customerId !== null) {
+        const c = await client.query(
+          "SELECT id FROM membership_members WHERE id = $1 AND company_id = $2",
+          [customerId, user.company_id]
+        );
+        if (!c.rows[0]) {
+          await client.query("ROLLBACK");
+          return badRequest("Customer not found");
+        }
+      }
+      if (entryGateId !== null) {
+        const g = await client.query(
+          "SELECT id FROM parking_gates WHERE id = $1 AND company_id = $2",
+          [entryGateId, user.company_id]
+        );
+        if (!g.rows[0]) {
+          await client.query("ROLLBACK");
+          return badRequest("Entry gate not found");
+        }
+      }
 
       // Resolve (or create) the vehicle.
       let vehicleId = body.vehicle_id ? Number(body.vehicle_id) : null;

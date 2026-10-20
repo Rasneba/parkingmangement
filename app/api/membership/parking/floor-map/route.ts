@@ -15,7 +15,6 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const siteId = Number(searchParams.get("site_id")) || null;
 
-    const companyId: number | null = isSuperAdmin(user) ? (user.company_id ?? null) : (user.company_id ?? null);
     const cp = "(company_id = $1 OR $1::int IS NULL)";
     const qp = [isSuperAdmin(user) ? null : user.company_id];
 

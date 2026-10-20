@@ -8,7 +8,8 @@ const COLUMNS = ["name", "description", "price", "currency", "duration_days", "m
 /**
  * PUT  /api/membership/parking/plans/:id — update a parking plan
  * DELETE /api/membership/parking/plans/:id — deactivate a parking plan (soft, preserves history)
- * Scoped to membership_plans.type='parking' so ERP membership plans are untouched.
+ * Scoped to membership_plans.type='parking' and the caller's company so ERP membership
+ * plans and other tenants are untouched.
  */
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   return withAuth(req, async (user) => {
@@ -29,18 +30,22 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         }
       }
       if (!sets.length) return err("No valid fields to update", 400);
-      vals.push(pid);
 
       const cur = await pool.query(
-        `SELECT * FROM membership_plans WHERE id = $1 AND type = 'parking'`,
-        [pid]
+        `SELECT * FROM membership_plans
+         WHERE id = $1 AND type = 'parking' AND company_id = $2`,
+        [pid, user.company_id]
       );
       if (!cur.rows[0]) return notFound("Plan");
       const before = cur.rows[0];
 
+      vals.push(pid);
+      const idIdx = vals.length;
+      vals.push(user.company_id);
+      const compIdx = vals.length;
       const res = await pool.query(
         `UPDATE membership_plans SET ${sets.join(", ")}, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $${vals.length} AND type = 'parking' RETURNING *`,
+         WHERE id = $${idIdx} AND type = 'parking' AND company_id = $${compIdx} RETURNING *`,
         vals
       );
 
@@ -69,8 +74,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
       // Soft delete: keep plan history for existing subscriptions.
       const res = await pool.query(
         `UPDATE membership_plans SET is_active = false, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1 AND type = 'parking' RETURNING *`,
-        [pid]
+         WHERE id = $1 AND type = 'parking' AND company_id = $2 RETURNING *`,
+        [pid, user.company_id]
       );
       if (!res.rows[0]) return notFound("Plan");
 

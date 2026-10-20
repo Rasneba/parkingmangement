@@ -54,7 +54,14 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
 
   const res = await fetch(path, { ...options, headers });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (res.ok) throw new ApiError(`Unexpected response (${res.status})`, res.status);
+    }
+  }
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
       clearSession();

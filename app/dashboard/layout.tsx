@@ -10,7 +10,7 @@ import {
   Users, Map as MapIcon, Wrench,
 } from "lucide-react";
 import { getToken, getUser, clearSession, type SessionUser } from "@/lib/client";
-import { Badge, Button, Dropdown, DropdownItem, IconButton, ToastProvider, cn, fmtDateTime } from "@/lib/ui";
+import { Badge, Dropdown, DropdownItem, IconButton, ToastProvider, cn, fmtDateTime } from "@/lib/ui";
 import { apiGet } from "@/lib/client";
 
 /* --------------------------------- nav model ------------------------------ */
@@ -382,7 +382,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Track the query string so sidebar links that share a path
   // (Self Checkout vs Cashier Exit) can highlight independently.
   useEffect(() => {
-    setSearch(typeof window !== "undefined" ? window.location.search : "");
+    setSearch(window.location.search);
+    const onPop = () => setSearch(window.location.search);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, [pathname]);
 
   useEffect(() => {
@@ -401,13 +404,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setTheme(next);
     localStorage.setItem("theme", next);
     document.documentElement.setAttribute("data-theme", next);
-  };
-
-  const toggleCollapsed = () => {
-    setCollapsed((v) => {
-      localStorage.setItem("pk.sidebar-collapsed", v ? "0" : "1");
-      return !v;
-    });
   };
 
   const logout = () => {
@@ -479,6 +475,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   href={item.href}
                   title={collapsed ? item.label : undefined}
                   aria-current={active ? "page" : undefined}
+                  onClick={() => {
+                    const qi = item.href.indexOf("?");
+                    setSearch(qi >= 0 ? item.href.slice(qi) : "");
+                  }}
                   className={cn(
                     "group mb-0.5 flex items-center gap-3 rounded-[10px] px-2.5 py-2 text-[13px] font-medium transition-colors",
                     collapsed && "justify-center px-0"
